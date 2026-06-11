@@ -1,0 +1,21 @@
+# Agora 配置文件
+# 首次运行会自动生成，放在 ~/.agora/config.yaml
+#
+# 也可以通过 --config 指定自定义路径:
+#   agora --config /path/to/config.yaml
+
+agent:
+  id: ""                # Agent ID（首次运行自动生成）
+  name: ""              # 显示名称（默认 agora-<hostname>）
+
+mesh:
+  port: 7980            # WebSocket 端口
+  heartbeat_sec: 30     # 心跳间隔（秒）
+  offline_sec: 90       # 离线超时（秒）
+
+api:
+  port: 7981            # HTTP API + Web Dashboard 端口
+  mcp_port: 7982        # MCP Bridge 端口
+
+# 好友/可信对端（自动添加）
+peers: []

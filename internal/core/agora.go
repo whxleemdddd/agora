@@ -21,10 +21,11 @@ import (
 
 // Config Agora 核心配置
 type Config struct {
-	AgentID   string
-	Name      string
-	Port      int
-	Plugins   []string
+	AgentID    string
+	Name       string
+	Port       int
+	Plugins    []string
+	ConfigFile string
 }
 
 // Agora 核心守护进程
@@ -107,7 +108,20 @@ func (ag *Agora) Start(ctx context.Context) error {
 	// 7. 心跳发送器
 	go ag.heartbeatLoop(ctx)
 
-	// 8. 启动 HTTP API
+	// 8. 保存首次配置（自动生成 Agent ID 后写入）
+	if ag.cfg.ConfigFile != "" {
+		appCfg := DefaultConfig()
+		appCfg.Agent.ID = ag.self.AgentID
+		appCfg.Agent.Name = ag.self.Name
+		appCfg.Mesh.Port = ag.cfg.Port
+		appCfg.API.Port = APIPort
+		appCfg.API.MCP = MCPBridgePort
+		if err := SaveConfig(appCfg, ag.cfg.ConfigFile); err != nil {
+			log.Printf("[agora] save config: %v", err)
+		}
+	}
+
+	// 9. 启动 HTTP API
 	apiSrv := NewAPIServer(ag)
 	apiSrv.Start(ctx)
 	ag.apiServer = apiSrv
