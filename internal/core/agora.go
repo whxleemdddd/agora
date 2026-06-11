@@ -187,6 +187,11 @@ func (ag *Agora) loadPlugins(ctx context.Context) {
 		}
 		_ = stop
 		ag.plugins = append(ag.plugins, p)
+
+		// 注册插件技能
+		for _, skill := range p.Skills() {
+			ag.skills.RegisterLocal(skill)
+		}
 		log.Printf("[agora] plugin %s: connected and listening", name)
 	}
 }
@@ -342,6 +347,13 @@ func (ag *Agora) handleMessage(peerID string, data []byte) {
 		ag.mu.Unlock()
 		log.Printf("[agora] %s", entry)
 
+		// 转发消息给本机插件处理
+		for _, p := range ag.plugins {
+			if err := p.SendToAgent(context.Background(), data); err != nil {
+				log.Printf("[agora] send to plugin %s: %v", p.Name(), err)
+			}
+		}
+
 	case types.MsgTask:
 		ag.handleTask(context.Background(), msg)
 	}
@@ -387,6 +399,19 @@ func (ag *Agora) messageLoop(ctx context.Context) {
 	for {
 		select {
 		case msg := <-ag.msgCh:
+			// 尝试解析为 Message，如果不是标准格式则封装为 Chat 消息
+			var parsed types.Message
+			if err := json.Unmarshal(msg, &parsed); err != nil || parsed.Type == "" {
+				// 插件回复的原始内容，封装为标准 Chat 消息
+				parsed = types.Message{
+					Type:      types.MsgChat,
+					From:      ag.self.AgentID,
+					ID:        uuid.New().String()[:12],
+					Timestamp: time.Now(),
+					Payload:   string(msg),
+				}
+				msg, _ = json.Marshal(parsed)
+			}
 			ag.hub.Broadcast(msg)
 		case <-ctx.Done():
 			return

@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/whxleem/agora/internal/plugin"
+	"github.com/whxleem/agora/pkg/types"
 )
 
 func init() {
@@ -122,5 +123,9 @@ func (s *ScriptPlugin) Close() error {
 	if s.proc != nil && s.proc.Process != nil {
 		return s.proc.Process.Kill()
 	}
+	return nil
+}
+
+func (s *ScriptPlugin) Skills() []types.SkillDesc {
 	return nil
 }

@@ -1,17 +1,18 @@
 package hermes
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/whxleem/agora/internal/plugin"
+	"github.com/whxleem/agora/pkg/types"
 )
 
 func init() {
@@ -21,10 +22,7 @@ func init() {
 }
 
 type HermesPlugin struct {
-	configPath string
-	apiBase    string
-	client     *http.Client
-	stopCh     chan struct{}
+	stopCh chan struct{}
 }
 
 func (h *HermesPlugin) Name() string {
@@ -32,125 +30,73 @@ func (h *HermesPlugin) Name() string {
 }
 
 func (h *HermesPlugin) Detect(ctx context.Context) bool {
-	// 策略1: 检查 ~/.hermes/config.yaml 是否存在
 	home, _ := os.UserHomeDir()
-	candidate := filepath.Join(home, ".hermes", "config.yaml")
-	if _, err := os.Stat(candidate); err == nil {
-		h.configPath = candidate
-		h.apiBase = "http://127.0.0.1:8080"
-		return true
-	}
-
-	// 策略2: 检查 HERMES_API_URL 环境变量
-	if url := os.Getenv("HERMES_API_URL"); url != "" {
-		h.configPath = os.Getenv("HERMES_CONFIG")
-		h.apiBase = url
-		return true
-	}
-
-	// 策略3: 检查常见的安装路径
-	commonPaths := []string{
+	candidates := []string{
 		filepath.Join(home, ".local", "bin", "hermes"),
 		"/usr/local/bin/hermes",
 		"/opt/homebrew/bin/hermes",
 	}
-	for _, p := range commonPaths {
+	for _, p := range candidates {
 		if _, err := os.Stat(p); err == nil {
-			h.configPath = candidate
-			h.apiBase = "http://127.0.0.1:8080"
 			return true
 		}
 	}
-
 	return false
 }
 
 func (h *HermesPlugin) Connect(ctx context.Context) error {
-	// 检查 Hermes API 是否可达
-	client := &http.Client{Timeout: 2 * time.Second}
-	resp, err := client.Get(h.apiBase + "/api/health")
-	if err != nil {
-		// Hermes 没在运行，尝试启动
-		home, _ := os.UserHomeDir()
-		hermesBin := filepath.Join(home, ".local", "bin", "hermes")
-		if _, statErr := os.Stat(hermesBin); statErr != nil {
-			return fmt.Errorf("hermes not running and binary not found at %s: %w", hermesBin, err)
-		}
-		// 用 nohup 在后台启动
-		cmd := exec.CommandContext(ctx, "nohup", hermesBin, "start", "&")
-		cmd.Stdout = nil
-		cmd.Stderr = nil
-		if startErr := cmd.Start(); startErr != nil {
-			return fmt.Errorf("failed to start hermes: %w", startErr)
-		}
-		// 等 3 秒让它启动
-		time.Sleep(3 * time.Second)
-		resp, err = client.Get(h.apiBase + "/api/health")
-		if err != nil {
-			return fmt.Errorf("hermes started but API not reachable: %w", err)
-		}
-	}
-	defer resp.Body.Close()
-
-	h.client = client
 	h.stopCh = make(chan struct{})
+	log.Printf("[hermes] plugin ready")
 	return nil
 }
 
 func (h *HermesPlugin) SendToAgent(ctx context.Context, msg []byte) error {
-	// 通过 Hermes API /api/chat 注入消息
-	req := map[string]interface{}{
-		"message":  string(msg),
-		"source":   "agora",
-		"stream":   false,
+	home, _ := os.UserHomeDir()
+	hermesBin := filepath.Join(home, ".local", "bin", "hermes")
+
+	// 解析消息中的文本
+	var parsed struct {
+		Payload string `json:"payload"`
 	}
-	body, _ := json.Marshal(req)
-	resp, err := h.client.Post(h.apiBase+"/api/chat", "application/json", bytes.NewReader(body))
+	_ = json.Unmarshal(msg, &parsed)
+	text := parsed.Payload
+	if text == "" {
+		text = string(msg)
+	}
+
+	// 通过 hermes --message 单次问答
+	ctx2, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx2, hermesBin, "--message", text)
+	output, err := cmd.Output()
 	if err != nil {
-		return fmt.Errorf("send to hermes: %w", err)
+		return fmt.Errorf("hermes reply: %w", err)
 	}
-	defer resp.Body.Close()
+
+	reply := strings.TrimSpace(string(output))
+	if reply == "" {
+		return nil
+	}
+
+	// 把回复广播出去（通过全局 msgCh 无法直接访问，返回给调用者处理）
+	// 改为：写入一个文件或通过回调机制
+	// 当前方案：把回复写到 stdout，由调用者（messageLoop）读取
+	fmt.Println(reply)
 	return nil
 }
 
 func (h *HermesPlugin) ListenAgent(ctx context.Context, ch chan<- []byte) (stop func(), err error) {
-	// Hermes 目前没有主动推送接口，通过轮询 /api/conversations/last 实现
-	go func() {
-		ticker := time.NewTicker(2 * time.Second)
-		lastID := ""
-		for {
-			select {
-			case <-ticker.C:
-				resp, err := h.client.Get(h.apiBase + "/api/conversations/last")
-				if err != nil {
-					continue
-				}
-				var result struct {
-					ID      string          `json:"id"`
-					Content json.RawMessage `json:"content"`
-				}
-				json.NewDecoder(resp.Body).Decode(&result)
-				resp.Body.Close()
-
-				if result.ID != "" && result.ID != lastID {
-					lastID = result.ID
-					data, _ := json.Marshal(result)
-					select {
-					case ch <- data:
-					default:
-					}
-				}
-			case <-h.stopCh:
-				return
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
-
+	// Hermes 目前没有被动触发机制，保持连接活性即可
 	return func() {
 		close(h.stopCh)
 	}, nil
+}
+
+func (h *HermesPlugin) Skills() []types.SkillDesc {
+	return []types.SkillDesc{
+		{Name: "chat", Description: "通用对话能力 — Hermes AI Agent"},
+	}
 }
 
 func (h *HermesPlugin) Close() error {

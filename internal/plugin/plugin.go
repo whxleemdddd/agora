@@ -1,6 +1,10 @@
 package plugin
 
-import "context"
+import (
+	"context"
+
+	"github.com/whxleem/agora/pkg/types"
+)
 
 // Plugin 插件接口 — 每种 Agent 框架实现一个
 type Plugin interface {
@@ -21,6 +25,9 @@ type Plugin interface {
 	// ListenAgent 监听 Agent 发出的消息，通过 ch 传给 Agora 核心
 	// 返回的 stop 函数用于停止监听
 	ListenAgent(ctx context.Context, ch chan<- []byte) (stop func(), err error)
+
+	// Skills 返回本插件支持的技能列表
+	Skills() []types.SkillDesc
 
 	// Close 断开与 Agent 的连接
 	Close() error
