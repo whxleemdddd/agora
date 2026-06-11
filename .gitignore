@@ -1,0 +1,21 @@
+# 编译产物
+agora
+agora.exe
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Go
+vendor/
+*.test
+*.out
+
+# 本地测试配置
+config.local.yaml
