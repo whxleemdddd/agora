@@ -48,6 +48,7 @@ type Agora struct {
 	mcpBridge *MCPBridge
 	skills    *SkillRegistry
 	tasks     *TaskManager
+	messages  []string
 }
 
 func New(cfg Config) *Agora {
@@ -90,6 +91,7 @@ func New(cfg Config) *Agora {
 		tasks:     NewTaskManager(),
 		apiPort:   apiPort,
 		mcpPort:   mcpPort,
+		messages:  make([]string, 0, 100),
 	}
 }
 
@@ -329,7 +331,16 @@ func (ag *Agora) handleMessage(peerID string, data []byte) {
 		ag.mu.Unlock()
 
 	case types.MsgChat:
-		log.Printf("[agora] chat from %s: %v", msg.From, msg.Payload)
+		payloadStr := fmt.Sprintf("%v", msg.Payload)
+		entry := fmt.Sprintf("[%s] %s: %s",
+			time.Now().Format("15:04:05"), msg.From, payloadStr)
+		ag.mu.Lock()
+		ag.messages = append(ag.messages, entry)
+		if len(ag.messages) > 100 {
+			ag.messages = ag.messages[len(ag.messages)-100:]
+		}
+		ag.mu.Unlock()
+		log.Printf("[agora] %s", entry)
 
 	case types.MsgTask:
 		ag.handleTask(context.Background(), msg)
@@ -399,6 +410,15 @@ func (ag *Agora) Peers() []types.PeerInfo {
 // Self 返回自身 AgentCard
 func (ag *Agora) Self() types.AgentCard {
 	return ag.self
+}
+
+// GetMessages 返回消息历史
+func (ag *Agora) GetMessages() []string {
+	ag.mu.RLock()
+	defer ag.mu.RUnlock()
+	cp := make([]string, len(ag.messages))
+	copy(cp, ag.messages)
+	return cp
 }
 
 // ── 停止 ──────────────────────────────────────────────

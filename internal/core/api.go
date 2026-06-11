@@ -24,6 +24,8 @@ func NewAPIServer(ag *Agora) *Server {
 	s.mux.HandleFunc("/api/peers", s.handlePeers)
 	s.mux.HandleFunc("/api/self", s.handleSelf)
 	s.mux.HandleFunc("/api/connect", s.handleConnect)
+	s.mux.HandleFunc("/api/broadcast", s.handleBroadcast)
+	s.mux.HandleFunc("/api/messages", s.handleMessages)
 	// Web Dashboard
 	s.mux.Handle("/", http.FileServer(http.FS(webFS)))
 	return s
@@ -95,4 +97,27 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 	go s.ag.connectToPeer(req.Addr, "", req.Addr)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "connecting", "addr": req.Addr})
+}
+
+// handleBroadcast 通过 Hub 广播消息到 Mesh
+func (s *Server) handleBroadcast(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", 405)
+		return
+	}
+	var req struct {
+		Message string `json:"message"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", 400)
+		return
+	}
+	s.ag.hub.Broadcast([]byte(req.Message))
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "broadcasted", "message": req.Message})
+}
+
+func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(s.ag.GetMessages())
 }

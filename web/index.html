@@ -84,6 +84,12 @@
     <div class="log" id="broadcast-log"></div>
   </div>
 
+  <!-- 消息流 -->
+  <div class="broadcast-box" style="margin-bottom: 24px;">
+    <h3>💬 消息流</h3>
+    <div class="log" id="message-log" style="max-height: 300px;"></div>
+  </div>
+
   <!-- 在线对端 -->
   <div class="peers-section">
     <h2>在线 Agent</h2>
@@ -121,6 +127,13 @@ async function refresh() {
     const mcpPort = status.mcp_port || 7982;
     window.__mcpPort = mcpPort;
 
+    // 获取消息
+    const msgsRes = await fetch(`${API_BASE}/api/messages`);
+    const msgs = await msgsRes.json();
+    const msgLog = document.getElementById('message-log');
+    msgLog.innerHTML = msgs.map(m => `<div class="entry">${m}</div>`).join('');
+    msgLog.scrollTop = msgLog.scrollHeight;
+
     document.getElementById('self-id').textContent = status.agent_id || '—';
     document.getElementById('self-name').textContent = status.name || '—';
     document.getElementById('peer-count').textContent = peers.length || 0;
@@ -155,16 +168,10 @@ async function broadcast() {
   const msg = document.getElementById('broadcast-msg').value.trim();
   if (!msg) return;
   try {
-    const mcpPort = window.__mcpPort || 7982;
-    await fetch(`${API_BASE.replace(/:\d+$/, ':' + mcpPort)}/mcp`, {
+    await fetch(`${API_BASE}/api/broadcast`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: Date.now(),
-        method: 'tools/call',
-        params: { name: 'agora_broadcast', arguments: { message: msg } }
-      })
+      body: JSON.stringify({ message: msg })
     });
     log(`📤 已广播: "${msg}"`);
     document.getElementById('broadcast-msg').value = '';
