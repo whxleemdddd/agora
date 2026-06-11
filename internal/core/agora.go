@@ -39,6 +39,7 @@ type Agora struct {
 	plugins   []plugin.Plugin
 	msgCh     chan []byte
 	cancel    context.CancelFunc
+	apiServer *Server
 }
 
 func New(cfg Config) *Agora {
@@ -101,7 +102,12 @@ func (ag *Agora) Start(ctx context.Context) error {
 	// 7. 心跳发送器
 	go ag.heartbeatLoop(ctx)
 
-	log.Printf("[agora] started — agent=%s, listening on :%d", ag.self.AgentID, ag.cfg.Port)
+	// 8. 启动 HTTP API
+	apiSrv := NewAPIServer(ag)
+	apiSrv.Start(ctx)
+	ag.apiServer = apiSrv
+
+	log.Printf("[agora] started — agent=%s, listening on :%d, API on :%d", ag.self.AgentID, ag.cfg.Port, APIPort)
 	return nil
 }
 
@@ -289,6 +295,9 @@ func (ag *Agora) Stop() {
 	ag.cancel()
 	ag.disco.Stop()
 	ag.hub.Stop()
+	if ag.apiServer != nil {
+		ag.apiServer.Stop()
+	}
 	for _, p := range ag.plugins {
 		p.Close()
 	}
