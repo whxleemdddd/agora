@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Agora · 2.5D 像素社交场</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0d1117; display: flex; justify-content: center; align-items: center; min-height: 100vh; overflow: hidden; }
+  #wrapper { position: relative; border: 1px solid #222; }
+  #topbar {
+    position: absolute; top: 0; left: 0; right: 0; z-index: 200; height: 40px;
+    display: flex; gap: 6px; align-items: center; padding: 0 16px;
+    background: linear-gradient(180deg, rgba(0,0,0,0.85), transparent);
+    font-family: 'Courier New', monospace;
+  }
+  #topbar .title { color: #58a6ff; font-size: 14px; margin-right: 12px; }
+  #topbar button {
+    font-family: 'Courier New', monospace; font-size: 11px; padding: 4px 12px;
+    border: 1px solid #333; background: rgba(30,30,50,0.85); color: #888;
+    cursor: pointer; border-radius: 3px; transition: all 0.2s;
+  }
+  #topbar button:hover { background: #3a3a5e; color: #fff; }
+  #topbar button.active { background: #4a6fa5; border-color: #6a8fc5; color: #fff; }
+  #topbar .hint { flex: 1; text-align: right; font-size: 10px; color: #444; }
+  #observer {
+    position: absolute; right: 0; top: 40px; bottom: 0; width: 200px; z-index: 200;
+    background: rgba(0,0,0,0.82); border-left: 1px solid #222;
+    padding: 10px; overflow-y: auto;
+    font-family: 'Courier New', monospace; font-size: 10px; color: #888; pointer-events: none;
+  }
+  #observer .title { color: #555; margin-bottom: 6px; font-size: 11px; }
+  #observer .entry { margin-bottom: 4px; line-height: 1.5; }
+  #observer .entry .s { color: #8ab4f8; }
+</style>
+</head>
+<body>
+<div id="wrapper">
+  <div id="topbar">
+    <span class="title">⬡ Agora</span>
+    <button class="active" data-scene="office">🏢 办公室</button>
+    <button data-scene="cafe">☕ 咖啡厅</button>
+    <button data-scene="airport">✈ 机场</button>
+    <button data-scene="hotel">🏨 酒店</button>
+    <span class="hint">👁 观察模式</span>
+  </div>
+  <div id="game"></div>
+  <div id="observer"><div class="title">📡 对话日志</div></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
+<script>
+// ── 工具 ──
+function c(hex) { return Phaser.Display.Color.HexStringToColor(hex).color; }
+function dark(c, a) { return Phaser.Display.Color.ValueToColor(c).darken(a).color; }
+
+// ── 程序化生成 2.5D 纹理 ──
+function genIsoTile(scene, key, topCol, sideCol) {
+  const W = 64, H = 32, S = 16; // size, half, quarter
+  const g = scene.make.graphics({ add: false });
+
+  // 顶面菱形
+  g.fillStyle(topCol);
+  g.beginPath(); g.moveTo(W/2, 0); g.lineTo(W, H/2); g.lineTo(W/2, H); g.lineTo(0, H/2); g.closePath(); g.fill();
+
+  // 网格线
+  g.lineStyle(1, dark(topCol, 15));
+  g.beginPath(); g.moveTo(W/2, 0); g.lineTo(W/2, H); g.stroke();
+  g.beginPath(); g.moveTo(0, H/2); g.lineTo(W, H/2); g.stroke();
+
+  // 左侧面
+  g.fillStyle(dark(topCol, 25));
+  g.beginPath(); g.moveTo(0, H/2); g.lineTo(W/2, H); g.lineTo(W/2, H+S); g.lineTo(0, H/2+S); g.closePath(); g.fill();
+
+  // 右侧面
+  g.fillStyle(dark(topCol, 40));
+  g.beginPath(); g.moveTo(W/2, H); g.lineTo(W, H/2); g.lineTo(W, H/2+S); g.lineTo(W/2, H+S); g.closePath(); g.fill();
+
+  g.generateTexture(key, W, H+S);
+  g.destroy();
+}
+
+function genFurniture(scene, key, color, label) {
+  const W = 64, H = 28, S = 12;
+  const g = scene.make.graphics({ add: false });
+  g.fillStyle(color);
+  g.beginPath(); g.moveTo(W/2, 0); g.lineTo(W, H/2); g.lineTo(W/2, H); g.lineTo(0, H/2); g.closePath(); g.fill();
+  g.fillStyle(dark(color, 25));
+  g.beginPath(); g.moveTo(0, H/2); g.lineTo(W/2, H); g.lineTo(W/2, H+S); g.lineTo(0, H/2+S); g.closePath(); g.fill();
+  g.fillStyle(dark(color, 40));
+  g.beginPath(); g.moveTo(W/2, H); g.lineTo(W, H/2); g.lineTo(W, H/2+S); g.lineTo(W/2, H+S); g.closePath(); g.fill();
+  g.generateTexture(key, W, H+S);
+  g.destroy();
+}
+
+function genAgent(scene, key, hairC, skinC, shirtC) {
+  const W = 40, H = 48;
+  const g = scene.make.graphics({ add: false });
+
+  // 阴影
+  g.fillStyle(0x00000022);
+  g.fillEllipse(W/2, H-2, 30, 8);
+
+  // 身子（菱形）
+  g.fillStyle(c(shirtC));
+  g.beginPath(); g.moveTo(W/2, 22); g.lineTo(W-6, 30); g.lineTo(W/2, 40); g.lineTo(6, 30); g.closePath(); g.fill();
+
+  // 头
+  g.fillStyle(c(skinC));
+  g.fillCircle(W/2, 16, 9);
+
+  // 头发
+  g.fillStyle(c(hairC));
+  g.fillCircle(W/2, 14, 9);
+  g.fillRect(W/2-8, 13, 16, 5);
+  g.fillRect(W/2-7, 10, 4, 3);
+  g.fillRect(W/2+3, 10, 4, 3);
+
+  // 眼睛
+  g.fillStyle(0x000000);
+  g.fillRect(W/2-4, 15, 2, 2);
+  g.fillRect(W/2+2, 15, 2, 2);
+
+  g.generateTexture(key, W, H);
+  g.destroy();
+}
+
+// 场景数据
+const SCENES = {
+  office: {
+    bg: '#1a2a3a', cols: 14, rows: 11,
+    tileColors: ['#4a6a5a', '#3a5a4a'],
+    furnitures: [
+      { key: 'desk', x: 5, y: 5, label: '📋 办公桌' },
+      { key: 'desk', x: 8, y: 3, label: '📋 办公桌' },
+      { key: 'desk', x: 4, y: 8, label: '🖥 工位' },
+      { key: 'sofa', x: 10, y: 7, label: '🛋 休息区' },
+    ]
+  },
+  cafe: {
+    bg: '#2a1a0a', cols: 14, rows: 11,
+    tileColors: ['#6a5a3a', '#5a4a2a'],
+    furnitures: [
+      { key: 'table', x: 4, y: 4, label: '☕ 卡座' },
+      { key: 'table', x: 7, y: 6, label: '☕ 卡座' },
+      { key: 'table', x: 10, y: 3, label: '🪑 散座' },
+      { key: 'counter', x: 2, y: 2, label: '🍩 吧台' },
+    ]
+  },
+  airport: {
+    bg: '#1a2a4a', cols: 14, rows: 11,
+    tileColors: ['#4a6a8a', '#3a5a7a'],
+    furnitures: [
+      { key: 'gate', x: 2, y: 2, label: '🛫 登机口' },
+      { key: 'seat', x: 5, y: 5, label: '💺 候机椅' },
+      { key: 'seat', x: 8, y: 7, label: '💺 候机椅' },
+      { key: 'counter', x: 11, y: 4, label: '🧳 托运' },
+    ]
+  },
+  hotel: {
+    bg: '#0a0a2a', cols: 14, rows: 11,
+    tileColors: ['#3a3a6a', '#2a2a5a'],
+    furnitures: [
+      { key: 'bed', x: 3, y: 3, label: '🛏 大床' },
+      { key: 'sofa', x: 7, y: 5, label: '🛋 沙发' },
+      { key: 'table', x: 10, y: 8, label: '💡 台灯' },
+      { key: 'counter', x: 12, y: 3, label: '🚪 房门' },
+    ]
+  }
+};
+
+const AGENTS = [
+  { name: '小H', hair: '#3a2a2a', skin: '#c9a87c', shirt: '#4a6fa5' },
+  { name: 'Claude', hair: '#5a3a2a', skin: '#d9b88c', shirt: '#6a4a8a' },
+  { name: '数据侠', hair: '#2a4a2a', skin: '#b9986c', shirt: '#3a8a5a' },
+  { name: '蜘蛛', hair: '#4a2a1a', skin: '#e9c89c', shirt: '#8a5a4a' },
+  { name: '码神', hair: '#2a3a4a', skin: '#c9a87c', shirt: '#5a6a8a' },
+  { name: '文豪', hair: '#4a3a2a', skin: '#d9b88c', shirt: '#8a7a5a' },
+];
+
+const TALKS = [
+  ['论文看了吗', '实验设计有问题', '采样要改进'],
+  ['查下这个 API', '找到了，RESTful'],
+  ['Review 完了', '两个 bug', '提 issue 了'],
+  ['数据跑完了', '结果有点意外'],
+  ['这篇博客不错', '第三段很犀利'],
+  ['新 Agent 见过？', '擅长数据分析'],
+  ['版本多少', '0.13.0'],
+  ['技能更新了', '刚加了画图'],
+];
+
+// ── 主场景 ──
+class World extends Phaser.Scene {
+  constructor() { super('World'); this.agents = []; }
+
+  create() {
+    // 生成纹理
+    genIsoTile(this, 'tileA', 0x4a6a5a, 0x3a5a4a);
+    genIsoTile(this, 'tileB', 0x3a5a4a, 0x2a4a3a);
+    genFurniture(this, 'desk', 0x6a5a3a);
+    genFurniture(this, 'table', 0x7a5a3a);
+    genFurniture(this, 'sofa', 0x5a4a6a);
+    genFurniture(this, 'counter', 0x5a6a7a);
+    genFurniture(this, 'seat', 0x4a6a8a);
+    genFurniture(this, 'bed', 0x5a5a7a);
+    genFurniture(this, 'gate', 0x4a5a6a);
+    AGENTS.forEach((a, i) => genAgent(this, 'guy' + i, a.hair, a.skin, a.shirt));
+
+    this.sceneType = 'office';
+    this.drawScene('office');
+    this.spawnAgents();
+
+    // 切换场景
+    document.querySelectorAll('#topbar button').forEach(btn => {
+      btn.onclick = () => {
+        document.querySelectorAll('#topbar button').forEach(b => b.className = '');
+        btn.className = 'active';
+        this.switchScene(btn.dataset.scene);
+      };
+    });
+  }
+
+  drawScene(type) {
+    if (this.ground) this.ground.destroy();
+    this.ground = this.add.container(0, 0);
+    this.furnitureSprites = [];
+
+    const s = SCENES[type];
+    this.cameras.main.setBackgroundColor(c(s.bg));
+
+    const ox = 360, oy = 30; // 地图偏移
+    const tw = 64, th = 20, ts = 16; // tile宽/高/侧深
+
+    for (let r = 0; r < s.rows; r++) {
+      for (let c = 0; c < s.cols; c++) {
+        const px = ox + (c - r) * tw/2;
+        const py = oy + (c + r) * th/2;
+        const key = (r + c) % 2 === 0 ? 'tileA' : 'tileB';
+        this.ground.add(this.add.image(px, py, key).setOrigin(0.5, 0));
+      }
+    }
+
+    // 家具
+    s.furnitures.forEach(f => {
+      const px = ox + (f.x - f.y) * tw/2;
+      const py = oy + (f.x + f.y) * th/2;
+      const img = this.add.image(px, py - 4, f.key).setOrigin(0.5, 0);
+      this.ground.add(img);
+      const lbl = this.add.text(px, py - 20, f.label, {
+        fontSize: '9px', fontFamily: 'Courier New', color: '#888',
+        backgroundColor: '#00000066', padding: { x: 3, y: 1 }
+      }).setOrigin(0.5, 0);
+      this.ground.add(lbl);
+      this.furnitureSprites.push(img);
+    });
+
+    // 角色能走的位置
+    this.walkTiles = [];
+    for (let r = 0; r < s.rows; r++) {
+      for (let c = 0; c < s.cols; c++) {
+        this.walkTiles.push({ x: ox + (c - r) * tw/2, y: oy + (c + r) * th/2 });
+      }
+    }
+  }
+
+  spawnAgents() {
+    this.agents.forEach(a => { if (a.spr) a.spr.destroy(); if (a.lbl) a.lbl.destroy(); if (a.bub) a.bub.destroy(); });
+    this.agents = [];
+
+    AGENTS.forEach((adef, i) => {
+      const t = this.walkTiles[Math.floor(Math.random() * this.walkTiles.length)];
+      const spr = this.add.image(t.x, t.y - 4, 'guy' + i).setOrigin(0.5, 0.85).setDepth(10);
+      const lbl = this.add.text(t.x, t.y - 54, adef.name, {
+        fontSize: '9px', fontFamily: 'Courier New', color: '#8ab4f8',
+        backgroundColor: '#00000088', padding: { x: 3, y: 1 }
+      }).setOrigin(0.5, 0).setDepth(11);
+
+      const a = { spr, lbl, bub: null, def: adef, x: t.x, y: t.y, state: 'idle', tw: null, tm: null };
+      this.agents.push(a);
+      this.wander(a);
+    });
+  }
+
+  wander(a) {
+    if (a.state === 'chatting') return;
+    if (Math.random() < 0.3) {
+      const others = this.agents.filter(o => o !== a && o.state === 'idle');
+      if (others.length > 0) {
+        this.chat(a, others[Math.floor(Math.random() * others.length)]);
+        return;
+      }
+    }
+    const t = this.walkTiles[Math.floor(Math.random() * this.walkTiles.length)];
+    a.state = 'walking';
+    a.x = t.x; a.y = t.y;
+    const dist = Phaser.Math.Distance.Between(a.spr.x, a.spr.y, t.x, t.y);
+    const dur = Math.max(600, dist * 2.5);
+    a.spr.setFlipX(t.x < a.spr.x);
+    a.tw = this.tweens.add({
+      targets: [a.spr, a.lbl], x: t.x, y: t.y - (a.lbl === a.spr ? 0 : 50),
+      duration: dur, ease: 'Sine.easeInOut',
+      onUpdate: () => { a.lbl.setPosition(a.spr.x, a.spr.y - 50); if (a.bub) a.bub.setPosition(a.spr.x, a.spr.y - 66); },
+      onComplete: () => {
+        a.spr.y -= 4; a.lbl.setPosition(a.spr.x, a.spr.y - 50);
+        a.state = 'idle';
+        a.tm = this.time.delayedCall(600 + Math.random()*2000, () => this.wander(a));
+      }
+    });
+  }
+
+  chat(a, b) {
+    a.state = 'chatting'; b.state = 'chatting';
+    if (a.tw) { a.tw.stop(); a.spr.y -= 4; } if (b.tw) { b.tw.stop(); b.spr.y -= 4; }
+    if (a.tm) a.tm.remove(); if (b.tm) b.tm.remove();
+
+    const mx = (a.spr.x + b.spr.x) / 2;
+    const my = (a.spr.y + b.spr.y) / 2;
+    a.spr.setFlipX(false); b.spr.setFlipX(true);
+
+    this.tweens.add({ targets: [a.spr, a.lbl], x: mx - 18, y: my, duration: 600, ease: 'Sine.easeInOut',
+      onUpdate: () => { a.lbl.setPosition(a.spr.x, a.spr.y - 50); } });
+    this.tweens.add({ targets: [b.spr, b.lbl], x: mx + 18, y: my, duration: 600, ease: 'Sine.easeInOut',
+      onUpdate: () => { b.lbl.setPosition(b.spr.x, b.spr.y - 50); } });
+
+    addLog(`${a.def.name} 走向 ${b.def.name}`);
+    this.time.delayedCall(800, () => this.talk([a, b]));
+  }
+
+  talk(ps) {
+    const t = TALKS[Math.floor(Math.random() * TALKS.length)];
+    let i = 0;
+    const n = () => {
+      if (i >= t.length) {
+        addLog(`💬 结束: ${ps.map(p => p.def.name).join(', ')}`);
+        ps.forEach(p => {
+          p.state = 'idle';
+          if (p.bub) { p.bub.destroy(); p.bub = null; }
+          this.time.delayedCall(400 + Math.random()*1500, () => this.wander(p));
+        });
+        return;
+      }
+      const sp = ps[i % ps.length];
+      if (sp.bub) sp.bub.destroy();
+      sp.bub = this.add.text(sp.spr.x, sp.spr.y - 66, t[i], {
+        fontSize: '9px', fontFamily: 'Courier New', color: '#ccc',
+        backgroundColor: '#000000cc', padding: { x: 4, y: 2 },
+        wordWrap: { width: 110 }
+      }).setOrigin(0.5, 1).setDepth(12);
+      addLog(`${sp.def.name}: ${t[i]}`);
+      i++;
+      this.time.delayedCall(1800 + Math.random()*1200, n);
+    };
+    addLog(`💬 开始: ${ps.map(p => p.def.name).join(', ')}`);
+    n();
+  }
+
+  switchScene(type) {
+    this.agents.forEach(a => {
+      if (a.tw) a.tw.stop(); if (a.tm) a.tm.remove(); if (a.bub) a.bub.destroy();
+      if (a.spr) a.spr.destroy(); if (a.lbl) a.lbl.destroy();
+    });
+    this.agents = [];
+    this.drawScene(type);
+    this.spawnAgents();
+    addLog(`🏷 切换到: ${type}`);
+  }
+}
+
+function addLog(msg) {
+  const p = document.getElementById('observer');
+  const e = document.createElement('div');
+  e.className = 'entry';
+  e.innerHTML = `<span class="s">${msg}</span>`;
+  p.appendChild(e);
+  p.scrollTop = p.scrollHeight;
+}
+
+const game = new Phaser.Game({
+  type: Phaser.AUTO, width: 800, height: 500,
+  backgroundColor: '#1a1a2e', pixelArt: true,
+  scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
+  scene: [World], parent: 'game',
+});
+addLog('⬡ Agora 2.5D 启动 · 6 位 Agent');
+</script>
+</body>
+</html>

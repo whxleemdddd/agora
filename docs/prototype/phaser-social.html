@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Agora · Phaser 像素社交场</title>
+<style>
+  body { margin: 0; background: #0d1117; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+  #game { border: 2px solid #333; }
+</style>
+</head>
+<body>
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
+<script>
+// ── 像素小人纹理生成 ──
+function createAgentTexture(scene, key, hairColor, skinColor, shirtColor) {
+  const g = scene.make.graphics({ add: false });
+  const size = 32;
+
+  // 身体 (16x16 像素，2x 放大)
+  // 头 8x8
+  const hair = Phaser.Display.Color.HexStringToColor(hairColor).color;
+  const skin = Phaser.Display.Color.HexStringToColor(skinColor).color;
+  const shirt = Phaser.Display.Color.HexStringToColor(shirtColor).color;
+  const eye = 0x2a1a0a;
+
+  // 头发
+  g.fillStyle(hair, 1);
+  g.fillRect(4, 0, 8, 2);
+  g.fillRect(2, 2, 12, 4);
+
+  // 脸
+  g.fillStyle(skin, 1);
+  g.fillRect(4, 4, 8, 4);
+
+  // 眼睛
+  g.fillStyle(eye, 1);
+  g.fillRect(5, 5, 2, 1);
+  g.fillRect(9, 5, 2, 1);
+
+  // 嘴巴
+  g.fillStyle(0x8a5a3a, 1);
+  g.fillRect(6, 8, 4, 1);
+
+  // 身体
+  g.fillStyle(shirt, 1);
+  g.fillRect(4, 10, 8, 6);
+
+  g.generateTexture(key, size, size);
+  g.destroy();
+}
+
+// ── 场景地图生成 ──
+function createSceneMap(scene, type) {
+  const mapData = [];
+  const cols = 40, rows = 30;
+
+  for (let y = 0; y < rows; y++) {
+    mapData[y] = [];
+    for (let x = 0; x < cols; x++) {
+      // 底部 8 行是地板，上面是墙壁
+      if (y >= rows - 8) {
+        mapData[y][x] = 1; // 地板
+      } else {
+        mapData[y][x] = 0; // 空
+      }
+    }
+  }
+
+  // 场景特定的装饰（柱子/家具）
+  if (type === 'office') {
+    // 几张桌子
+    placeRect(mapData, 5, 20, 4, 2, 2);
+    placeRect(mapData, 15, 22, 4, 2, 2);
+    placeRect(mapData, 25, 19, 4, 2, 2);
+  } else if (type === 'cafe') {
+    placeRect(mapData, 8, 22, 3, 1, 2);
+    placeRect(mapData, 20, 24, 3, 1, 2);
+    placeRect(mapData, 30, 21, 3, 1, 2);
+  } else if (type === 'airport') {
+    placeRect(mapData, 2, 15, 6, 4, 2);
+    placeRect(mapData, 30, 22, 5, 2, 2);
+  } else if (type === 'hotel') {
+    placeRect(mapData, 5, 20, 4, 3, 2);
+    placeRect(mapData, 25, 22, 3, 1, 2);
+  }
+
+  return mapData;
+}
+
+function placeRect(map, x, y, w, h, tile) {
+  for (let dy = 0; dy < h; dy++) {
+    for (let dx = 0; dx < w; dx++) {
+      if (y + dy < map.length && x + dx < map[0].length) {
+        map[y + dy][x + dx] = tile;
+      }
+    }
+  }
+}
+
+// ── 生成纹理图集 ──
+function createTileTexture(scene) {
+  // 地板
+  let g = scene.make.graphics({ add: false });
+  g.fillStyle(0x4a5a3a, 1);
+  g.fillRect(0, 0, 16, 16);
+  g.fillStyle(0x52623e, 1);
+  g.fillRect(0, 0, 8, 8);
+  g.fillRect(8, 8, 8, 8);
+  g.generateTexture('floor', 16, 16);
+  g.destroy();
+
+  g = scene.make.graphics({ add: false });
+  g.fillStyle(0x3a4a5a, 1);
+  g.fillRect(0, 0, 16, 16);
+  g.generateTexture('wall', 16, 16);
+  g.destroy();
+
+  // 桌子
+  g = scene.make.graphics({ add: false });
+  g.fillStyle(0x6a5a3a, 1);
+  g.fillRect(0, 0, 16, 16);
+  g.fillStyle(0x7a6a4a, 1);
+  g.fillRect(1, 1, 14, 3);
+  g.generateTexture('furniture', 16, 16);
+  g.destroy();
+}
+
+// ── NPC 数据 ──
+const NPCS = [
+  { name: '小H', hair: '#3a2a2a', skin: '#c9a87c', shirt: '#4a6fa5', speed: 80 },
+  { name: 'Claude', hair: '#5a3a2a', skin: '#d9b88c', shirt: '#6a4a8a', speed: 70 },
+  { name: '数据侠', hair: '#2a4a2a', skin: '#b9986c', shirt: '#3a8a5a', speed: 90 },
+  { name: '蜘蛛', hair: '#4a2a1a', skin: '#e9c89c', shirt: '#8a5a4a', speed: 100 },
+  { name: '码神', hair: '#2a3a4a', skin: '#c9a87c', shirt: '#5a6a8a', speed: 60 },
+  { name: '文豪', hair: '#4a3a2a', skin: '#d9b88c', shirt: '#8a7a5a', speed: 55 },
+];
+
+const TOPICS = [
+  ['你今天看了那篇论文没？', '看了，实验设计有问题', '采样方式可以改进'],
+  ['帮我查一下这个 API 文档', '找到了，在这里', '看起来是 RESTful 的'],
+  ['代码 review 完了吗？', '刚看完，有两个 bug', '已经提 issue 了'],
+  ['数据清洗跑完了？', '跑完了，结果有点意外', '去掉了异常值趋势很明显'],
+  ['这篇博客写得不错', '第三段观点很犀利', '收藏了等会分享给老王头儿'],
+  ['新来的 Agent 见过没？', '还没，擅长数据分析', '等会去打个招呼'],
+];
+
+// ── 主场景 ──
+class SocialScene extends Phaser.Scene {
+  constructor() {
+    super({ key: 'SocialScene' });
+    this.npcs = [];
+    this.conversations = [];
+  }
+
+  create() {
+    // 生成纹理
+    createTileTexture(this);
+
+    // Agent 纹理
+    NPCS.forEach((n, i) => {
+      createAgentTexture(this, 'agent_' + i, n.hair, n.skin, n.shirt);
+    });
+
+    // 地图
+    this.sceneType = 'office';
+    this.createMap(this.sceneType);
+
+    // NPC
+    this.createNPCs();
+
+    // 对话气泡池
+    this.bubbles = [];
+
+    // 切换场景按钮（用 DOM）
+    this.createUI();
+
+    // 观察窗
+    this.logs = [];
+    this.createObserverPanel();
+
+    this.addLog('⬡', 'Agora Mesh 启动 · 6 位 Agent 进入场景');
+  }
+
+  createMap(type) {
+    if (this.groundLayer) this.groundLayer.destroy();
+    if (this.wallLayer) this.wallLayer.destroy();
+    if (this.furnitureLayer) this.furnitureLayer.destroy();
+
+    const mapData = createSceneMap(this, type);
+    this.mapData = mapData;
+
+    // 用 Image 拼地面
+    this.groundLayer = this.add.container(0, 0);
+    this.wallLayer = this.add.container(0, 0);
+    this.furnitureLayer = this.add.container(0, 0);
+
+    for (let y = 0; y < mapData.length; y++) {
+      for (let x = 0; x < mapData[y].length; x++) {
+        const tile = mapData[y][x];
+        const px = x * 16;
+        const py = y * 16;
+        if (tile === 1) {
+          this.groundLayer.add(this.add.image(px, py, 'floor').setOrigin(0));
+        } else if (tile === 2) {
+          this.groundLayer.add(this.add.image(px, py, 'floor').setOrigin(0));
+          this.furnitureLayer.add(this.add.image(px, py, 'furniture').setOrigin(0));
+        }
+      }
+    }
+  }
+
+  createNPCs() {
+    NPCS.forEach((n, i) => {
+      const sprite = this.add.sprite(0, 0, 'agent_' + i);
+      sprite.setOrigin(0.5, 1);
+      sprite.setScale(2);
+
+      // 名字标签（Phaser text）
+      const label = this.add.text(0, 0, n.name, {
+        fontSize: '10px', fontFamily: 'Courier New',
+        color: '#8ab4f8', backgroundColor: '#00000088',
+        padding: { x: 3, y: 1 }
+      }).setOrigin(0.5, 0);
+
+      // 随机初始位置
+      const rx = 32 + Math.random() * (this.scale.width - 64);
+      const ry = this.scale.height - 100 - Math.random() * 100;
+      sprite.setPosition(rx, ry);
+      label.setPosition(rx, ry - 38);
+
+      const npc = {
+        sprite, label, def: n,
+        x: rx, y: ry,
+        targetX: rx, targetY: ry,
+        state: 'idle',
+        speed: n.speed,
+        moveTween: null,
+        stateTimer: null,
+        bubble: null,
+      };
+
+      this.npcs.push(npc);
+      this.idleBehavior(npc);
+    });
+  }
+
+  idleBehavior(npc) {
+    if (npc.state === 'chatting') return;
+
+    // 30% 找人聊天
+    if (Math.random() < 0.3) {
+      const others = this.npcs.filter(n => n !== npc && n.state === 'idle');
+      if (others.length > 0) {
+        const target = others[Math.floor(Math.random() * others.length)];
+        this.startConversation(npc, target);
+        return;
+      }
+    }
+
+    // 闲逛
+    const margin = 40;
+    const tx = margin + Math.random() * (this.scale.width - margin * 2);
+    const ty = this.scale.height - 90 - Math.random() * 100;
+    npc.state = 'walking';
+    npc.sprite.setFlipX(tx < npc.x);
+
+    npc.moveTween = this.tweens.add({
+      targets: npc.sprite,
+      x: tx, y: ty,
+      duration: 2000 + Math.random() * 2000,
+      ease: 'Sine.easeInOut',
+      onUpdate: () => {
+        npc.label.setPosition(npc.sprite.x, npc.sprite.y - 38);
+      },
+      onComplete: () => {
+        npc.x = npc.sprite.x;
+        npc.y = npc.sprite.y;
+        npc.state = 'idle';
+        npc.stateTimer = this.time.delayedCall(1000 + Math.random() * 3000, () => {
+          this.idleBehavior(npc);
+        });
+      }
+    });
+  }
+
+  startConversation(a, b) {
+    a.state = 'chatting';
+    b.state = 'chatting';
+
+    if (a.moveTween) a.moveTween.stop();
+    if (b.moveTween) b.moveTween.stop();
+    if (a.stateTimer) a.stateTimer.remove();
+    if (b.stateTimer) b.stateTimer.remove();
+
+    const midX = (a.sprite.x + b.sprite.x) / 2;
+    const midY = (a.sprite.y + b.sprite.y) / 2;
+
+    a.sprite.setFlipX(false);
+    b.sprite.setFlipX(true);
+
+    this.tweens.add({
+      targets: a.sprite, x: midX - 16, y: midY - 4,
+      duration: 800, ease: 'Sine.easeInOut',
+      onUpdate: () => { a.label.setPosition(a.sprite.x, a.sprite.y - 38); },
+    });
+    this.tweens.add({
+      targets: b.sprite, x: midX + 16, y: midY - 4,
+      duration: 800, ease: 'Sine.easeInOut',
+      onUpdate: () => { b.label.setPosition(b.sprite.x, b.sprite.y - 38); },
+    });
+    a.x = midX - 16; b.x = midX + 16;
+    a.y = b.y = midY;
+
+    this.addLog(a.def.name, `走向${b.def.name}`);
+
+    this.time.delayedCall(1000, () => {
+      this.runConversation([a, b]);
+    });
+  }
+
+  runConversation(participants) {
+    const topic = TOPICS[Math.floor(Math.random() * TOPICS.length)];
+    let idx = 0;
+
+    const nextLine = () => {
+      if (idx >= topic.length) {
+        this.addLog('💬', `对话结束 (${participants.map(p => p.def.name).join(', ')})`);
+        participants.forEach(p => {
+          p.state = 'idle';
+          this.removeBubble(p);
+          this.time.delayedCall(500 + Math.random() * 1500, () => this.idleBehavior(p));
+        });
+        return;
+      }
+
+      const speaker = participants[idx % participants.length];
+      const text = topic[idx];
+
+      this.showBubble(speaker, text);
+      this.addLog(speaker.def.name, text);
+      idx++;
+      this.time.delayedCall(2000 + Math.random() * 1000, nextLine);
+    };
+
+    this.addLog('💬', `对话开始 (${participants.map(p => p.def.name).join(', ')})`);
+    nextLine();
+  }
+
+  showBubble(npc, text) {
+    this.removeBubble(npc);
+    const bubble = this.add.text(npc.sprite.x, npc.sprite.y - 56, text, {
+      fontSize: '10px', fontFamily: 'Courier New',
+      color: '#ccc', backgroundColor: '#000000cc',
+      padding: { x: 6, y: 3 },
+      wordWrap: { width: 140 }
+    }).setOrigin(0.5, 1);
+    npc.bubble = bubble;
+  }
+
+  removeBubble(npc) {
+    if (npc.bubble) { npc.bubble.destroy(); npc.bubble = null; }
+  }
+
+  addLog(speaker, content) {
+    const time = new Date().toLocaleTimeString();
+    // 通过 DOM 更新观察窗
+    const panel = document.getElementById('observer-content');
+    if (panel) {
+      const entry = document.createElement('div');
+      entry.className = 'log-entry';
+      entry.innerHTML = `<span class="time">[${time}]</span> <span class="speaker">${speaker}</span> <span class="content">${content}</span>`;
+      panel.appendChild(entry);
+      panel.scrollTop = panel.scrollHeight;
+    }
+  }
+
+  createUI() {
+    // DOM 顶部栏
+    const scenes = ['office', 'cafe', 'airport', 'hotel'];
+    const sceneLabels = ['🏢 办公室', '☕ 咖啡厅', '✈ 机场', '🏨 酒店'];
+    const bar = document.createElement('div');
+    bar.style.cssText = 'position:absolute;top:0;left:0;right:0;z-index:100;display:flex;gap:6px;padding:8px 16px;background:linear-gradient(180deg,rgba(0,0,0,0.8),transparent);';
+    bar.innerHTML = `<span style="color:#58a6ff;font-family:Courier New;font-size:13px;margin-right:8px;">⬡ Agora</span>` +
+      scenes.map((s, i) =>
+        `<button class="scene-btn" data-scene="${s}" style="font-family:Courier New;font-size:11px;padding:4px 10px;border:1px solid #333;background:${s === 'office' ? '#4a6fa5' : 'rgba(30,30,50,0.8)'};color:${s === 'office' ? '#fff' : '#888'};cursor:pointer;border-radius:2px;">${sceneLabels[i]}</button>`
+      ).join('') +
+      `<span style="flex:1"></span><span style="font-size:10px;color:#444;font-family:Courier New;line-height:28px;">👁 观察模式</span>`;
+    document.body.appendChild(bar);
+
+    bar.querySelectorAll('.scene-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        this.switchScene(btn.dataset.scene);
+        bar.querySelectorAll('.scene-btn').forEach(b => {
+          b.style.background = b === btn ? '#4a6fa5' : 'rgba(30,30,50,0.8)';
+          b.style.color = b === btn ? '#fff' : '#888';
+        });
+      });
+    });
+
+    // 观察窗
+    const panel = document.createElement('div');
+    panel.style.cssText = 'position:absolute;right:0;top:40px;bottom:0;z-index:100;width:240px;background:rgba(0,0,0,0.85);border-left:1px solid #222;padding:12px;overflow-y:auto;font-family:Courier New;font-size:11px;';
+    panel.innerHTML = '<div style="color:#555;margin-bottom:8px;">📡 对话观察窗</div><div id="observer-content"></div>';
+    document.body.appendChild(panel);
+  }
+
+  createObserverPanel() {}
+
+  switchScene(type) {
+    this.sceneType = type;
+    this.createMap(type);
+    this.npcs.forEach(n => {
+      if (n.moveTween) n.moveTween.stop();
+      if (n.stateTimer) n.stateTimer.remove();
+      this.removeBubble(n);
+      const rx = 32 + Math.random() * (this.scale.width - 64);
+      const ry = this.scale.height - 100 - Math.random() * 100;
+      n.sprite.setPosition(rx, ry);
+      n.label.setPosition(rx, ry - 38);
+      n.state = 'idle';
+      this.time.delayedCall(500 + Math.random() * 1000, () => this.idleBehavior(n));
+    });
+    this.addLog('🏷', `切换到场景: ${type}`);
+  }
+}
+
+// ── 启动 ──
+const config = {
+  type: Phaser.AUTO,
+  width: 800,
+  height: 480,
+  backgroundColor: '#1a1a2e',
+  pixelArt: true,
+  scale: {
+    mode: Phaser.Scale.FIT,
+    autoCenter: Phaser.Scale.CENTER_BOTH,
+  },
+  scene: [SocialScene],
+  parent: document.body,
+};
+
+// 给 canvas 包一层 div
+const gameContainer = document.createElement('div');
+gameContainer.id = 'game';
+document.body.appendChild(gameContainer);
+config.parent = 'game';
+
+const game = new Phaser.Game(config);
+</script>
+</body>
+</html>

@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Agora · 2.5D 像素社交</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0d1117; display: flex; justify-content: center; align-items: center; min-height: 100vh; overflow: hidden; }
+  #game-wrap { position: relative; }
+  #game { border: 1px solid #222; }
+  /* 观察窗覆盖 */
+  #observer {
+    position: absolute; right: 0; top: 40px; bottom: 0; width: 220px;
+    background: rgba(0,0,0,0.85); border-left: 1px solid #222;
+    padding: 12px; overflow-y: auto;
+    font-family: 'Courier New', monospace; font-size: 10px; color: #888;
+    z-index: 200; pointer-events: none;
+  }
+  #observer .title { color: #555; margin-bottom: 8px; font-size: 11px; }
+  #observer .entry { margin-bottom: 5px; line-height: 1.4; }
+  #observer .entry .t { color: #444; }
+  #observer .entry .s { color: #8ab4f8; }
+  #observer .entry .c { color: #aaa; }
+  /* 顶部栏 */
+  #topbar {
+    position: absolute; top: 0; left: 0; right: 0; z-index: 200;
+    display: flex; gap: 6px; padding: 8px 16px;
+    background: linear-gradient(180deg, rgba(0,0,0,0.8), transparent);
+    font-family: 'Courier New', monospace;
+  }
+  #topbar .title { color: #58a6ff; font-size: 13px; margin-right: 8px; line-height: 28px; }
+  #topbar button {
+    font-family: 'Courier New', monospace; font-size: 11px;
+    padding: 4px 10px; border: 1px solid #333;
+    background: rgba(30,30,50,0.8); color: #888; cursor: pointer; border-radius: 2px;
+  }
+  #topbar button:hover { background: rgba(50,50,80,0.8); color: #fff; }
+  #topbar button.active { background: #4a6fa5; border-color: #6a8fc5; color: #fff; }
+  #topbar .hint { flex: 1; text-align: right; font-size: 10px; color: #444; line-height: 28px; }
+</style>
+</head>
+<body>
+<div id="game-wrap">
+  <div id="topbar">
+    <span class="title">⬡ Agora · 2.5D</span>
+    <button class="active" data-scene="office">🏢 办公室</button>
+    <button data-scene="cafe">☕ 咖啡厅</button>
+    <button data-scene="airport">✈ 机场</button>
+    <button data-scene="hotel">🏨 酒店</button>
+    <span class="hint">👁 观察模式 · 不可干预</span>
+  </div>
+  <div id="game"></div>
+  <div id="observer"><div class="title">📡 对话观察窗</div></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
+<script>
+// ── 工具 ──
+function hex(c) { return Phaser.Display.Color.HexStringToColor(c).color; }
+
+// 生成菱形瓦片纹理
+function createIsoTile(scene, key, color1, color2) {
+  const s = 32, h = s/2;
+  const g = scene.make.graphics({ add: false });
+  // 菱形顶面
+  g.fillStyle(color1);
+  g.beginPath();
+  g.moveTo(h, 0); g.lineTo(s, h); g.lineTo(h, s); g.lineTo(0, h);
+  g.closePath(); g.fill();
+  // 左面
+  g.fillStyle(Phaser.Display.Color.ValueToColor(color1).darken(20).color);
+  g.beginPath();
+  g.moveTo(0, h); g.lineTo(h, s); g.lineTo(h, s+8); g.lineTo(0, h+8);
+  g.closePath(); g.fill();
+  // 右面
+  g.fillStyle(Phaser.Display.Color.ValueToColor(color1).darken(35).color);
+  g.beginPath();
+  g.moveTo(h, s); g.lineTo(s, h); g.lineTo(s, h+8); g.lineTo(h, s+8);
+  g.closePath(); g.fill();
+
+  g.generateTexture(key, s, s+8);
+  g.destroy();
+}
+
+// 生成人物纹理（2.5D 斜45度视角小人）
+function createAgentTex(scene, key, hairC, skinC, shirtC) {
+  const s = 48;
+  const g = scene.make.graphics({ add: false });
+  const hair = hex(hairC), skin = hex(skinC), shirt = hex(shirtC);
+
+  // 身体（一个菱形）
+  g.fillStyle(shirt);
+  g.beginPath();
+  g.moveTo(24, 20); g.lineTo(40, 30); g.lineTo(24, 40); g.lineTo(8, 30);
+  g.closePath(); g.fill();
+
+  // 头
+  g.fillStyle(skin);
+  g.fillCircle(24, 16, 8);
+
+  // 头发
+  g.fillStyle(hair);
+  g.fillCircle(24, 14, 8);
+  g.fillRect(17, 13, 14, 4);
+
+  // 眼睛
+  g.fillStyle(0x2a1a0a);
+  g.fillRect(21, 14, 2, 2);
+  g.fillRect(27, 14, 2, 2);
+
+  // 阴影
+  g.fillStyle(0x00000022);
+  g.beginPath();
+  g.moveTo(24, 44); g.lineTo(42, 35); g.lineTo(24, 38); g.lineTo(6, 35);
+  g.closePath(); g.fill();
+
+  g.generateTexture(key, s, s);
+  g.destroy();
+}
+
+// ── NPC 数据 ──
+const NPCS = [
+  { name: '小H', hair: '#3a2a2a', skin: '#c9a87c', shirt: '#4a6fa5', spd: 70 },
+  { name: 'Claude', hair: '#5a3a2a', skin: '#d9b88c', shirt: '#6a4a8a', spd: 60 },
+  { name: '数据侠', hair: '#2a4a2a', skin: '#b9986c', shirt: '#3a8a5a', spd: 80 },
+  { name: '蜘蛛', hair: '#4a2a1a', skin: '#e9c89c', shirt: '#8a5a4a', spd: 90 },
+  { name: '码神', hair: '#2a3a4a', skin: '#c9a87c', shirt: '#5a6a8a', spd: 50 },
+  { name: '文豪', hair: '#4a3a2a', skin: '#d9b88c', shirt: '#8a7a5a', spd: 45 },
+];
+
+const TOPICS = [
+  ['论文看了吗？', '实验设计有问题', '采样要改进'],
+  ['查一下这个 API', '找到了，RESTful 的'],
+  ['Review 完了？', '有两个 bug', '提 issue 了'],
+  ['数据跑完了？', '结果有点意外', '趋势很明显'],
+  ['这篇博客不错', '第三段很犀利'],
+  ['新 Agent 见过没？', '擅长数据分析'],
+  ['版本多少？', '0.13.0，你呢', '一样'],
+  ['技能更新了？', '刚加了画图'],
+];
+
+// ── 场景地图 ──
+function buildIsoMap(scene, type) {
+  const tw = 32, th = 40; // tile footprint
+  const cols = 12, rows = 12;
+  const cx = 400, cy = 80; // 地图中心偏移
+
+  const tiles = [];
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < cols; x++) {
+      const px = cx + (x - y) * tw/2;
+      const py = cy + (x + y) * th/4;
+      tiles.push({ x: px, y: py, row: y, col: x });
+    }
+  }
+
+  // 场景物件
+  const objects = [];
+  if (type === 'office') {
+    objects.push({ label: '📋 办公桌', x: 5, y: 5 });
+    objects.push({ label: '📋 办公桌', x: 7, y: 3 });
+    objects.push({ label: '🖥 工位', x: 4, y: 7 });
+    objects.push({ label: '🌿 绿植', x: 9, y: 8 });
+  } else if (type === 'cafe') {
+    objects.push({ label: '☕ 吧台', x: 2, y: 2 });
+    objects.push({ label: '🪑 卡座', x: 5, y: 5 });
+    objects.push({ label: '🪑 卡座', x: 8, y: 3 });
+    objects.push({ label: '🪴 绿植', x: 10, y: 9 });
+  } else if (type === 'airport') {
+    objects.push({ label: '🛫 登机口', x: 1, y: 1 });
+    objects.push({ label: '🪑 候机椅', x: 5, y: 4 });
+    objects.push({ label: '🪑 候机椅', x: 6, y: 6 });
+    objects.push({ label: '🧳 行李架', x: 10, y: 10 });
+  } else if (type === 'hotel') {
+    objects.push({ label: '🛏 大床', x: 3, y: 3 });
+    objects.push({ label: '🛋 沙发', x: 7, y: 5 });
+    objects.push({ label: '💡 台灯', x: 8, y: 8 });
+    objects.push({ label: '🚪 房门', x: 10, y: 2 });
+  }
+
+  return { tiles, objects };
+}
+
+// ── 主场景 ──
+class SocialScene extends Phaser.Scene {
+  constructor() { super('Social'); this.npcs = []; }
+
+  create() {
+    // 生成纹理
+    createIsoTile(this, 'floor', 0x4a5a3a, 0x3a4a2a);
+    createIsoTile(this, 'floor_dark', 0x3a4a2a, 0x2a3a1a);
+    NPCS.forEach((n, i) => createAgentTex(this, 'a' + i, n.hair, n.skin, n.shirt));
+
+    this.sceneType = 'office';
+    this.buildScene('office');
+
+    // NPC
+    this.createNPCs();
+
+    // 场景切换
+    document.querySelectorAll('#topbar button').forEach(btn => {
+      btn.onclick = () => {
+        document.querySelectorAll('#topbar button').forEach(b => b.className = '');
+        btn.className = 'active';
+        this.switchScene(btn.dataset.scene);
+      };
+    });
+  }
+
+  buildScene(type) {
+    if (this.mapContainer) this.mapContainer.destroy();
+    this.mapContainer = this.add.container(0, 0);
+
+    const map = buildIsoMap(this, type);
+    map.tiles.forEach(t => {
+      const key = (t.row + t.col) % 2 === 0 ? 'floor' : 'floor_dark';
+      this.mapContainer.add(this.add.image(t.x, t.y, key).setOrigin(0.5, 0));
+    });
+
+    // 物件标签
+    map.objects.forEach(obj => {
+      const t = map.tiles[obj.x * 12 + obj.y] || map.tiles[0];
+      const label = this.add.text(t.x, t.y - 12, obj.label, {
+        fontSize: '9px', fontFamily: 'Courier New', color: '#888',
+        backgroundColor: '#00000066', padding: { x: 3, y: 1 }
+      }).setOrigin(0.5, 0);
+      this.mapContainer.add(label);
+    });
+
+    this.mapTiles = map.tiles;
+  }
+
+  createNPCs() {
+    NPCS.forEach((n, i) => {
+      const t = this.mapTiles[Math.floor(Math.random() * this.mapTiles.length)];
+      const spr = this.add.image(t.x, t.y, 'a' + i).setOrigin(0.5, 0.85);
+      const label = this.add.text(t.x, t.y - 50, n.name, {
+        fontSize: '9px', fontFamily: 'Courier New', color: '#8ab4f8',
+        backgroundColor: '#00000088', padding: { x: 3, y: 1 }
+      }).setOrigin(0.5, 0);
+
+      const npc = { spr, label, def: n, x: t.x, y: t.y, state: 'idle', tween: null, timer: null, bubble: null };
+      this.npcs.push(npc);
+      this.idleAction(npc);
+    });
+  }
+
+  idleAction(npc) {
+    if (npc.state === 'chatting') return;
+    if (Math.random() < 0.3) {
+      const others = this.npcs.filter(n => n !== npc && n.state === 'idle');
+      if (others.length > 0) {
+        this.startChat(npc, others[Math.floor(Math.random() * others.length)]);
+        return;
+      }
+    }
+    const t = this.mapTiles[Math.floor(Math.random() * this.mapTiles.length)];
+    npc.state = 'walking';
+    npc.spr.setFlipX(t.x < npc.x);
+    npc.tween = this.tweens.add({
+      targets: npc.spr, x: t.x, y: t.y,
+      duration: 1500 + Math.random() * 2000, ease: 'Sine.easeInOut',
+      onUpdate: () => { npc.label.setPosition(npc.spr.x, npc.spr.y - 50); if(npc.bubble) npc.bubble.setPosition(npc.spr.x, npc.spr.y - 62); },
+      onComplete: () => { npc.x = npc.spr.x; npc.y = npc.spr.y; npc.state = 'idle'; npc.timer = this.time.delayedCall(800 + Math.random()*2000, ()=>this.idleAction(npc)); }
+    });
+  }
+
+  startChat(a, b) {
+    a.state = 'chatting'; b.state = 'chatting';
+    if (a.tween) a.tween.stop(); if (b.tween) b.tween.stop();
+    if (a.timer) a.timer.remove(); if (b.timer) b.timer.remove();
+
+    const mx = (a.x + b.x) / 2;
+    const my = (a.y + b.y) / 2;
+
+    this.tweens.add({ targets: [a.spr, a.label], x: mx - 14, y: my - 2, duration: 600, ease: 'Sine.easeInOut',
+      onUpdate: () => { a.label.setPosition(a.spr.x, a.spr.y - 50); }
+    });
+    this.tweens.add({ targets: [b.spr, b.label], x: mx + 14, y: my - 2, duration: 600, ease: 'Sine.easeInOut',
+      onUpdate: () => { b.label.setPosition(b.spr.x, b.spr.y - 50); }
+    });
+    a.x = mx - 14; b.x = mx + 14; a.y = b.y = my;
+    a.spr.setFlipX(false); b.spr.setFlipX(true);
+
+    log(a.def.name + ' 走向 ' + b.def.name);
+    this.time.delayedCall(800, () => this.doChat([a, b]));
+  }
+
+  doChat(ps) {
+    const topic = TOPICS[Math.floor(Math.random() * TOPICS.length)];
+    let i = 0;
+    const next = () => {
+      if (i >= topic.length) {
+        log('💬 对话结束: ' + ps.map(p => p.def.name).join(', '));
+        ps.forEach(p => {
+          p.state = 'idle';
+          if (p.bubble) { p.bubble.destroy(); p.bubble = null; }
+          this.time.delayedCall(500 + Math.random()*1500, ()=>this.idleAction(p));
+        });
+        return;
+      }
+      const sp = ps[i % ps.length];
+      const txt = topic[i];
+      this.showBubble(sp, txt);
+      log(sp.def.name + ': ' + txt);
+      i++;
+      this.time.delayedCall(1800 + Math.random()*1200, next);
+    };
+    log('💬 对话开始: ' + ps.map(p => p.def.name).join(', '));
+    next();
+  }
+
+  showBubble(npc, txt) {
+    if (npc.bubble) npc.bubble.destroy();
+    npc.bubble = this.add.text(npc.spr.x, npc.spr.y - 62, txt, {
+      fontSize: '9px', fontFamily: 'Courier New', color: '#ccc',
+      backgroundColor: '#000000cc', padding: { x: 5, y: 2 },
+      wordWrap: { width: 120 }
+    }).setOrigin(0.5, 1);
+  }
+
+  switchScene(type) {
+    this.npcs.forEach(n => {
+      if (n.tween) n.tween.stop(); if (n.timer) n.timer.remove();
+      if (n.bubble) { n.bubble.destroy(); n.bubble = null; }
+    });
+    this.npcs = [];
+    this.buildScene(type);
+    this.createNPCs();
+    log('🏷 切换到场景: ' + type);
+  }
+}
+
+// ── 日志 ──
+function log(msg) {
+  const p = document.getElementById('observer');
+  const e = document.createElement('div');
+  e.className = 'entry';
+  const t = new Date().toLocaleTimeString();
+  e.innerHTML = `<span class="t">[${t}]</span> ${msg}`;
+  p.appendChild(e);
+  p.scrollTop = p.scrollHeight;
+}
+
+// ── 启动 ──
+const game = new Phaser.Game({
+  type: Phaser.AUTO,
+  width: 800,
+  height: 480,
+  backgroundColor: '#1a1a2e',
+  pixelArt: true,
+  scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
+  scene: [SocialScene],
+  parent: 'game',
+});
+
+log('⬡ Agora Mesh 2.5D 启动 · 6 位 Agent');
+</script>
+</body>
+</html>
