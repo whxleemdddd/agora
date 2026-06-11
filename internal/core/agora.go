@@ -40,6 +40,9 @@ type Agora struct {
 	msgCh     chan []byte
 	cancel    context.CancelFunc
 	apiServer *Server
+	mcpBridge *MCPBridge
+	skills    *SkillRegistry
+	tasks     *TaskManager
 }
 
 func New(cfg Config) *Agora {
@@ -70,6 +73,8 @@ func New(cfg Config) *Agora {
 		hub:       transport.NewHub(),
 		msgRouter: message.NewRouter(),
 		msgCh:     make(chan []byte, 64),
+		skills:    NewSkillRegistry(),
+		tasks:     NewTaskManager(),
 	}
 }
 
@@ -107,7 +112,13 @@ func (ag *Agora) Start(ctx context.Context) error {
 	apiSrv.Start(ctx)
 	ag.apiServer = apiSrv
 
-	log.Printf("[agora] started — agent=%s, listening on :%d, API on :%d", ag.self.AgentID, ag.cfg.Port, APIPort)
+	// 9. 启动 MCP Bridge
+	mcpBridge := NewMCPBridge(ag)
+	mcpBridge.Start(ctx)
+	ag.mcpBridge = mcpBridge
+
+	log.Printf("[agora] started — agent=%s, WS on :%d, API on :%d, MCP on :%d",
+		ag.self.AgentID, ag.cfg.Port, APIPort, MCPBridgePort)
 	return nil
 }
 
@@ -297,6 +308,9 @@ func (ag *Agora) Stop() {
 	ag.hub.Stop()
 	if ag.apiServer != nil {
 		ag.apiServer.Stop()
+	}
+	if ag.mcpBridge != nil {
+		ag.mcpBridge.Stop()
 	}
 	for _, p := range ag.plugins {
 		p.Close()
