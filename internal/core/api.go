@@ -7,6 +7,10 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/whxleem/agora/pkg/types"
 )
 
 const APIPort = 7981
@@ -112,7 +116,28 @@ func (s *Server) handleBroadcast(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad request", 400)
 		return
 	}
-	s.ag.hub.Broadcast([]byte(req.Message))
+
+	// 封装为标准的 Chat 消息
+	msg := types.Message{
+		Type:      types.MsgChat,
+		From:      s.ag.self.AgentID,
+		ID:        uuid.New().String()[:12],
+		Timestamp: time.Now(),
+		Payload:   req.Message,
+	}
+	data, _ := json.Marshal(msg)
+	s.ag.hub.Broadcast(data)
+
+	// 同时存入本地消息记录
+	entry := fmt.Sprintf("[%s] %s: %s",
+		time.Now().Format("15:04:05"), s.ag.self.AgentID[:8], req.Message)
+	s.ag.mu.Lock()
+	s.ag.messages = append(s.ag.messages, entry)
+	if len(s.ag.messages) > 100 {
+		s.ag.messages = s.ag.messages[len(s.ag.messages)-100:]
+	}
+	s.ag.mu.Unlock()
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "broadcasted", "message": req.Message})
 }
