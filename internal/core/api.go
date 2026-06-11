@@ -23,13 +23,14 @@ func NewAPIServer(ag *Agora) *Server {
 	s.mux.HandleFunc("/api/status", s.handleStatus)
 	s.mux.HandleFunc("/api/peers", s.handlePeers)
 	s.mux.HandleFunc("/api/self", s.handleSelf)
+	s.mux.HandleFunc("/api/connect", s.handleConnect)
 	// Web Dashboard
 	s.mux.Handle("/", http.FileServer(http.FS(webFS)))
 	return s
 }
 
-func (s *Server) Start(ctx context.Context) {
-	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", APIPort))
+func (s *Server) Start(ctx context.Context, port int) {
+	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
 		log.Printf("[api] listen error: %v", err)
 		return
@@ -47,7 +48,7 @@ func (s *Server) Start(ctx context.Context) {
 			log.Printf("[api] serve error: %v", err)
 		}
 	}()
-	log.Printf("[api] dashboard: http://127.0.0.1:%d", APIPort)
+	log.Printf("[api] dashboard: http://127.0.0.1:%d", port)
 }
 
 func (s *Server) Stop() {
@@ -74,4 +75,22 @@ func (s *Server) handlePeers(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleSelf(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(s.ag.Self())
+}
+
+// handleConnect 手动连接一个对端（用于同机测试 / 跨网段场景）
+func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", 405)
+		return
+	}
+	var req struct {
+		Addr string `json:"addr"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", 400)
+		return
+	}
+	go s.ag.connectToPeer(req.Addr, "", req.Addr)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "connecting", "addr": req.Addr})
 }

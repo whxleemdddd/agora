@@ -13,12 +13,13 @@ import (
 
 // Hub WebSocket 连接管理器
 type Hub struct {
-	upgrader websocket.Upgrader
-	mu       sync.RWMutex
-	conns    map[string]*websocket.Conn
-	onConn   func(peerID string)
-	server   *http.Server
-	listener net.Listener
+	upgrader   websocket.Upgrader
+	mu         sync.RWMutex
+	conns      map[string]*websocket.Conn
+	onConn     func(peerID string)
+	onMessage  func(peerID string, msg []byte) // 新增：收到消息回调
+	server     *http.Server
+	listener   net.Listener
 }
 
 func NewHub() *Hub {
@@ -42,7 +43,6 @@ func (h *Hub) Start(ctx context.Context, port int, onConn func(peerID string)) {
 		BaseContext: func(_ net.Listener) context.Context { return ctx },
 	}
 
-	// 直接用 listener 启动，避免端口冲突
 	var err error
 	h.listener, err = net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
@@ -53,6 +53,11 @@ func (h *Hub) Start(ctx context.Context, port int, onConn func(peerID string)) {
 	if err := h.server.Serve(h.listener); err != nil && err != http.ErrServerClosed {
 		log.Printf("[hub] serve error: %v", err)
 	}
+}
+
+// SetOnMessage 设置消息回调
+func (h *Hub) SetOnMessage(fn func(peerID string, msg []byte)) {
+	h.onMessage = fn
 }
 
 func (h *Hub) handleWS(w http.ResponseWriter, r *http.Request) {
@@ -75,7 +80,6 @@ func (h *Hub) handleWS(w http.ResponseWriter, r *http.Request) {
 		h.onConn(peerID)
 	}
 
-	// 读取消息（当前仅维持连接活性）
 	go func() {
 		defer func() {
 			h.mu.Lock()
@@ -84,9 +88,12 @@ func (h *Hub) handleWS(w http.ResponseWriter, r *http.Request) {
 			conn.Close()
 		}()
 		for {
-			_, _, err := conn.ReadMessage()
+			_, msg, err := conn.ReadMessage()
 			if err != nil {
 				break
+			}
+			if h.onMessage != nil {
+				h.onMessage(peerID, msg)
 			}
 		}
 	}()
@@ -104,10 +111,28 @@ func (h *Hub) Connect(addr string, agentID string) (*websocket.Conn, error) {
 	h.conns[agentID] = conn
 	h.mu.Unlock()
 
+	// 主动连接后也开始读消息
+	go func() {
+		defer func() {
+			h.mu.Lock()
+			delete(h.conns, agentID)
+			h.mu.Unlock()
+			conn.Close()
+		}()
+		for {
+			_, msg, err := conn.ReadMessage()
+			if err != nil {
+				break
+			}
+			if h.onMessage != nil {
+				h.onMessage(agentID, msg)
+			}
+		}
+	}()
+
 	return conn, nil
 }
 
-// Broadcast 广播消息给所有连接
 func (h *Hub) Broadcast(msg []byte) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
@@ -125,7 +150,6 @@ func (h *Hub) Broadcast(msg []byte) {
 	}
 }
 
-// SendTo 发送消息给指定对端
 func (h *Hub) SendTo(peerID string, msg []byte) error {
 	h.mu.RLock()
 	conn, ok := h.conns[peerID]
@@ -137,7 +161,6 @@ func (h *Hub) SendTo(peerID string, msg []byte) error {
 	return conn.WriteMessage(websocket.TextMessage, msg)
 }
 
-// Stop 停止 WebSocket Hub
 func (h *Hub) Stop() {
 	if h.server != nil {
 		h.server.Close()

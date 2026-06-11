@@ -24,6 +24,8 @@ type Config struct {
 	AgentID    string
 	Name       string
 	Port       int
+	APIPort    int
+	MCPPort    int
 	Plugins    []string
 	ConfigFile string
 }
@@ -40,6 +42,8 @@ type Agora struct {
 	plugins   []plugin.Plugin
 	msgCh     chan []byte
 	cancel    context.CancelFunc
+	apiPort   int
+	mcpPort   int
 	apiServer *Server
 	mcpBridge *MCPBridge
 	skills    *SkillRegistry
@@ -50,6 +54,14 @@ func New(cfg Config) *Agora {
 	port := cfg.Port
 	if port == 0 {
 		port = discovery.ServicePort
+	}
+	apiPort := cfg.APIPort
+	if apiPort == 0 {
+		apiPort = APIPort
+	}
+	mcpPort := cfg.MCPPort
+	if mcpPort == 0 {
+		mcpPort = MCPBridgePort
 	}
 	agentID := cfg.AgentID
 	if agentID == "" {
@@ -76,6 +88,8 @@ func New(cfg Config) *Agora {
 		msgCh:     make(chan []byte, 64),
 		skills:    NewSkillRegistry(),
 		tasks:     NewTaskManager(),
+		apiPort:   apiPort,
+		mcpPort:   mcpPort,
 	}
 }
 
@@ -91,7 +105,8 @@ func (ag *Agora) Start(ctx context.Context) error {
 
 	// 2. 启动 WebSocket Hub
 	log.Printf("[agora] starting WebSocket hub on port %d", ag.cfg.Port)
-	go ag.hub.Start(ctx, ag.cfg.Port, ag.handleIncomingConn)
+	go ag.hub.Start(ctx, ag.cfg.Port, ag.onPeerConn)
+	ag.hub.SetOnMessage(ag.handleMessage)
 
 	// 3. 启动消息路由
 	go ag.msgRouter.Start(ctx)
@@ -114,8 +129,14 @@ func (ag *Agora) Start(ctx context.Context) error {
 		appCfg.Agent.ID = ag.self.AgentID
 		appCfg.Agent.Name = ag.self.Name
 		appCfg.Mesh.Port = ag.cfg.Port
-		appCfg.API.Port = APIPort
-		appCfg.API.MCP = MCPBridgePort
+		appCfg.API.Port = ag.cfg.APIPort
+		if appCfg.API.Port == 0 {
+			appCfg.API.Port = APIPort
+		}
+		appCfg.API.MCP = ag.cfg.MCPPort
+		if appCfg.API.MCP == 0 {
+			appCfg.API.MCP = MCPBridgePort
+		}
 		if err := SaveConfig(appCfg, ag.cfg.ConfigFile); err != nil {
 			log.Printf("[agora] save config: %v", err)
 		}
@@ -123,16 +144,16 @@ func (ag *Agora) Start(ctx context.Context) error {
 
 	// 9. 启动 HTTP API
 	apiSrv := NewAPIServer(ag)
-	apiSrv.Start(ctx)
+	apiSrv.Start(ctx, ag.apiPort)
 	ag.apiServer = apiSrv
 
-	// 9. 启动 MCP Bridge
+	// 10. 启动 MCP Bridge
 	mcpBridge := NewMCPBridge(ag)
-	mcpBridge.Start(ctx)
+	mcpBridge.Start(ctx, ag.mcpPort)
 	ag.mcpBridge = mcpBridge
 
 	log.Printf("[agora] started — agent=%s, WS on :%d, API on :%d, MCP on :%d",
-		ag.self.AgentID, ag.cfg.Port, APIPort, MCPBridgePort)
+		ag.self.AgentID, ag.cfg.Port, ag.apiPort, ag.mcpPort)
 	return nil
 }
 
@@ -238,15 +259,81 @@ func (ag *Agora) connectToPeer(addr, agentID, name string) {
 
 // ── 入站连接处理 ──────────────────────────────────────
 
-func (ag *Agora) handleIncomingConn(peerID string) {
-	log.Printf("[agora] incoming connection: %s", peerID)
-	// 建一个临时的 peer 记录，等收到握手消息后更新
+func (ag *Agora) onPeerConn(peerID string) {
+	log.Printf("[agora] peer connected: %s", peerID)
 	ag.mu.Lock()
 	ag.peers[peerID] = &types.PeerInfo{
 		ConnID:    peerID,
 		LastSeen:  time.Now(),
 	}
 	ag.mu.Unlock()
+
+	// 回发握手消息
+	cardData, _ := json.Marshal(ag.self)
+	handshake := types.Message{
+		Type:      types.MsgHandshake,
+		From:      ag.self.AgentID,
+		To:        peerID,
+		ID:        uuid.New().String()[:12],
+		Timestamp: time.Now(),
+		Payload:   string(cardData),
+	}
+	msgData, _ := json.Marshal(handshake)
+	ag.hub.SendTo(peerID, msgData)
+	log.Printf("[agora] handshake sent back to %s", peerID)
+}
+
+// handleMessage 处理从 Hub 收到的消息
+func (ag *Agora) handleMessage(peerID string, data []byte) {
+	var msg types.Message
+	if err := json.Unmarshal(data, &msg); err != nil {
+		return
+	}
+
+	switch msg.Type {
+	case types.MsgHandshake:
+		// 收到握手消息，更新对端的 AgentCard
+		cardStr, ok := msg.Payload.(string)
+		if !ok {
+			return
+		}
+		var card types.AgentCard
+		if err := json.Unmarshal([]byte(cardStr), &card); err != nil {
+			return
+		}
+
+		ag.mu.Lock()
+		if peer, exists := ag.peers[msg.From]; exists {
+			peer.Card = card
+			peer.LastSeen = time.Now()
+		} else {
+			ag.peers[msg.From] = &types.PeerInfo{
+				Card:     card,
+				ConnID:   msg.From,
+				LastSeen: time.Now(),
+			}
+		}
+		ag.mu.Unlock()
+
+		// 注册对端技能
+		ag.skills.RegisterRemote(msg.From, card.Skills)
+
+		log.Printf("[agora] handshake received from %s (%s)", card.Name, msg.From)
+
+	case types.MsgHeartbeat:
+		// 收到心跳，更新最后在线时间
+		ag.mu.Lock()
+		if peer, exists := ag.peers[msg.From]; exists {
+			peer.LastSeen = time.Now()
+		}
+		ag.mu.Unlock()
+
+	case types.MsgChat:
+		log.Printf("[agora] chat from %s: %v", msg.From, msg.Payload)
+
+	case types.MsgTask:
+		ag.handleTask(context.Background(), msg)
+	}
 }
 
 // ── 心跳 ──────────────────────────────────────────────

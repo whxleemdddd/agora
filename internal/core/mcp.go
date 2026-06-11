@@ -55,8 +55,8 @@ func NewMCPBridge(ag *Agora) *MCPBridge {
 	return m
 }
 
-func (mb *MCPBridge) Start(ctx context.Context) {
-	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", mb.port))
+func (mb *MCPBridge) Start(ctx context.Context, port int) {
+	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
 		log.Printf("[mcp] listen error: %v", err)
 		return
