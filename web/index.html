@@ -97,7 +97,8 @@
 </div>
 
 <script>
-const API_BASE = 'http://127.0.0.1:7981';
+const API_BASE = window.location.origin;
+const WS_PORT = API_BASE.includes('7991') ? 7990 : 7980;
 
 function log(msg) {
   const el = document.getElementById('broadcast-log');
@@ -117,6 +118,8 @@ async function refresh() {
     ]);
     const status = await statusRes.json();
     const peers = await peersRes.json();
+    const mcpPort = status.mcp_port || 7982;
+    window.__mcpPort = mcpPort;
 
     document.getElementById('self-id').textContent = status.agent_id || '—';
     document.getElementById('self-name').textContent = status.name || '—';
@@ -152,7 +155,8 @@ async function broadcast() {
   const msg = document.getElementById('broadcast-msg').value.trim();
   if (!msg) return;
   try {
-    await fetch('http://127.0.0.1:7982/mcp', {
+    const mcpPort = window.__mcpPort || 7982;
+    await fetch(`${API_BASE.replace(/:\d+$/, ':' + mcpPort)}/mcp`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

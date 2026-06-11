@@ -64,6 +64,8 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"name":       s.ag.Self().Name,
 		"status":     s.ag.Self().Status,
 		"peers":      len(s.ag.Peers()),
+		"api_port":   s.ag.apiPort,
+		"mcp_port":   s.ag.mcpPort,
 	})
 }
 
