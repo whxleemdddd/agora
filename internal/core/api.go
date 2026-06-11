@@ -11,7 +11,7 @@ import (
 
 const APIPort = 7981
 
-// Server Agora HTTP API 服务
+// Server Agora HTTP API + Web Dashboard
 type Server struct {
 	ag   *Agora
 	mux  *http.ServeMux
@@ -23,6 +23,8 @@ func NewAPIServer(ag *Agora) *Server {
 	s.mux.HandleFunc("/api/status", s.handleStatus)
 	s.mux.HandleFunc("/api/peers", s.handlePeers)
 	s.mux.HandleFunc("/api/self", s.handleSelf)
+	// Web Dashboard
+	s.mux.Handle("/", http.FileServer(http.FS(webFS)))
 	return s
 }
 
@@ -45,7 +47,7 @@ func (s *Server) Start(ctx context.Context) {
 			log.Printf("[api] serve error: %v", err)
 		}
 	}()
-	log.Printf("[api] HTTP API listening on :%d", APIPort)
+	log.Printf("[api] dashboard: http://127.0.0.1:%d", APIPort)
 }
 
 func (s *Server) Stop() {

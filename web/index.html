@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agora Mesh</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0d1117; color: #c9d1d9; min-height: 100vh; }
+  .container { max-width: 1000px; margin: 0 auto; padding: 24px; }
+  header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 32px; }
+  h1 { font-size: 24px; font-weight: 600; color: #58a6ff; }
+  .self-card { display: flex; gap: 24px; margin-bottom: 32px; }
+  .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 20px; flex: 1; }
+  .card h3 { font-size: 14px; color: #8b949e; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .card .value { font-size: 18px; color: #c9d1d9; margin-bottom: 4px; }
+  .card .sub { font-size: 12px; color: #8b949e; }
+  .peers-section { margin-bottom: 32px; }
+  .peers-section h2 { font-size: 18px; margin-bottom: 16px; }
+  .peer-list { display: flex; flex-direction: column; gap: 12px; }
+  .peer-card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px; display: flex; justify-content: space-between; align-items: center; }
+  .peer-info .name { font-size: 16px; font-weight: 500; }
+  .peer-info .meta { font-size: 12px; color: #8b949e; margin-top: 4px; }
+  .peer-status { padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 500; }
+  .status-online { background: #1b3a2b; color: #3fb950; }
+  .status-busy { background: #3a2b1b; color: #d29922; }
+  .status-offline { background: #2d1b1b; color: #f85149; }
+  .empty-state { text-align: center; padding: 48px; color: #8b949e; }
+  .empty-state p { font-size: 14px; margin-top: 8px; }
+  .actions { display: flex; gap: 12px; margin-bottom: 24px; }
+  button { background: #238636; color: #fff; border: none; border-radius: 6px; padding: 10px 20px; font-size: 14px; cursor: pointer; }
+  button:hover { background: #2ea043; }
+  button.secondary { background: #21262d; border: 1px solid #30363d; }
+  button.secondary:hover { background: #30363d; }
+  input[type="text"], textarea { background: #0d1117; border: 1px solid #30363d; border-radius: 6px; color: #c9d1d9; padding: 10px 14px; font-size: 14px; width: 100%; }
+  input[type="text"]:focus, textarea:focus { outline: none; border-color: #58a6ff; }
+  .broadcast-box { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 20px; }
+  .broadcast-box h3 { margin-bottom: 12px; }
+  .broadcast-box .row { display: flex; gap: 12px; align-items: flex-start; }
+  .broadcast-box .row textarea { flex: 1; min-height: 60px; resize: vertical; }
+  .log { margin-top: 12px; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 12px; font-family: monospace; font-size: 12px; max-height: 120px; overflow-y: auto; color: #8b949e; }
+  .log .entry { margin-bottom: 4px; }
+  .log .entry time { color: #484f58; }
+  .peer-card:hover { border-color: #58a6ff; transition: border-color 0.2s; }
+  .skills-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .skill-tag { background: #1f3a5f; color: #79c0ff; padding: 2px 8px; border-radius: 4px; font-size: 11px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>⬡ Agora Mesh</h1>
+    <span id="last-update" style="font-size: 12px; color: #8b949e;"></span>
+  </header>
+
+  <!-- 本机信息 -->
+  <div class="self-card" id="self-card">
+    <div class="card">
+      <h3>Agent ID</h3>
+      <div class="value" id="self-id">—</div>
+    </div>
+    <div class="card">
+      <h3>名称</h3>
+      <div class="value" id="self-name">—</div>
+    </div>
+    <div class="card">
+      <h3>在线对端</h3>
+      <div class="value" id="peer-count">0</div>
+    </div>
+  </div>
+
+  <!-- 操作区 -->
+  <div class="actions">
+    <button onclick="refresh()">🔄 刷新</button>
+  </div>
+
+  <!-- 广播 -->
+  <div class="broadcast-box" style="margin-bottom: 24px;">
+    <h3>📢 广播消息</h3>
+    <div class="row">
+      <textarea id="broadcast-msg" placeholder="输入消息内容..." rows="2"></textarea>
+      <button onclick="broadcast()">发送</button>
+    </div>
+    <div class="log" id="broadcast-log"></div>
+  </div>
+
+  <!-- 在线对端 -->
+  <div class="peers-section">
+    <h2>在线 Agent</h2>
+    <div class="peer-list" id="peer-list">
+      <div class="empty-state">
+        <div style="font-size: 24px;">⬡</div>
+        <p>正在连接 Agora 守护进程...</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const API_BASE = 'http://127.0.0.1:7981';
+
+function log(msg) {
+  const el = document.getElementById('broadcast-log');
+  const entry = document.createElement('div');
+  entry.className = 'entry';
+  entry.innerHTML = `<time>${new Date().toLocaleTimeString()}</time> ${msg}`;
+  el.appendChild(entry);
+  el.scrollTop = el.scrollHeight;
+}
+
+async function refresh() {
+  document.getElementById('last-update').textContent = '刷新中...';
+  try {
+    const [statusRes, peersRes] = await Promise.all([
+      fetch(`${API_BASE}/api/status`),
+      fetch(`${API_BASE}/api/peers`)
+    ]);
+    const status = await statusRes.json();
+    const peers = await peersRes.json();
+
+    document.getElementById('self-id').textContent = status.agent_id || '—';
+    document.getElementById('self-name').textContent = status.name || '—';
+    document.getElementById('peer-count').textContent = peers.length || 0;
+    document.getElementById('last-update').textContent = `更新于 ${new Date().toLocaleTimeString()}`;
+
+    const list = document.getElementById('peer-list');
+    if (!peers || peers.length === 0) {
+      list.innerHTML = `<div class="empty-state"><div style="font-size: 24px;">⬡</div><p>Mesh 中暂无其他 Agent</p></div>`;
+      return;
+    }
+
+    list.innerHTML = peers.map(p => {
+      const card = p.card || {};
+      const lastSeen = p.last_seen ? new Date(p.last_seen).toLocaleTimeString() : '—';
+      const statusClass = card.status === 'online' ? 'status-online' : card.status === 'busy' ? 'status-busy' : 'status-offline';
+      return `<div class="peer-card">
+        <div class="peer-info">
+          <div class="name">${card.name || card.agent_id || 'Unknown'}</div>
+          <div class="meta">${card.agent_id || ''} · ${card.framework || '?'} · 最后在线 ${lastSeen}</div>
+        </div>
+        <span class="peer-status ${statusClass}">${card.status || 'unknown'}</span>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    document.getElementById('self-id').textContent = '⚠ 连接失败';
+    document.getElementById('peer-list').innerHTML =
+      `<div class="empty-state"><div style="font-size: 24px;">⚠</div><p>Agora 守护进程未运行。请先执行: agora</p></div>`;
+  }
+}
+
+async function broadcast() {
+  const msg = document.getElementById('broadcast-msg').value.trim();
+  if (!msg) return;
+  try {
+    await fetch('http://127.0.0.1:7982/mcp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: Date.now(),
+        method: 'tools/call',
+        params: { name: 'agora_broadcast', arguments: { message: msg } }
+      })
+    });
+    log(`📤 已广播: "${msg}"`);
+    document.getElementById('broadcast-msg').value = '';
+  } catch (e) {
+    log(`❌ 广播失败: ${e.message}`);
+  }
+}
+
+// 自动刷新
+refresh();
+setInterval(refresh, 10000);
+</script>
+</body>
+</html>
