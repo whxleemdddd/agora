@@ -19,3 +19,9 @@ vendor/
 
 # 本地测试配置
 config.local.yaml
+
+# Electron 桌面应用
+desktop/
+
+# 文档原型（已移到 docs/prototype/）
+prototype/
