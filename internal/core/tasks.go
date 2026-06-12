@@ -128,6 +128,17 @@ func (tm *TaskManager) Fail(id string, errMsg string) {
 	}
 }
 
+// List 返回所有任务记录的快照
+func (tm *TaskManager) List() []TaskRecord {
+	tm.mu.RLock()
+	defer tm.mu.RUnlock()
+	list := make([]TaskRecord, 0, len(tm.tasks))
+	for _, t := range tm.tasks {
+		list = append(list, *t)
+	}
+	return list
+}
+
 // ── 消息处理（task 入口）────────────────────────────
 
 func (ag *Agora) handleTask(ctx context.Context, msg types.Message) {
@@ -156,4 +167,18 @@ func (ag *Agora) handleTask(ctx context.Context, msg types.Message) {
 
 	record := ag.tasks.NewTask(msg.From, ag.self.AgentID, task.Skill, task.Payload)
 	log.Printf("[task] task %s created, skill=%s", record.ID, task.Skill)
+
+	// 转发任务到本机插件执行
+	taskMsg, _ := json.Marshal(map[string]interface{}{
+		"type":    "task",
+		"skill":   task.Skill,
+		"payload": task.Payload,
+		"task_id": record.ID,
+		"reply_to": msg.From,
+	})
+	for _, p := range ag.plugins {
+		if err := p.SendToAgent(ctx, taskMsg); err != nil {
+			log.Printf("[task] send to plugin %s: %v", p.Name(), err)
+		}
+	}
 }

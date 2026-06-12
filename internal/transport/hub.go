@@ -101,6 +101,10 @@ func (h *Hub) handleWS(w http.ResponseWriter, r *http.Request) {
 
 // Connect 主动连接到对端的 WebSocket
 func (h *Hub) Connect(addr string, agentID string) (*websocket.Conn, error) {
+	// 如果没有 agentID，先生成一个临时 ID
+	if agentID == "" {
+		agentID = fmt.Sprintf("connect-%d", len(h.conns)+1)
+	}
 	u := fmt.Sprintf("ws://%s/ws?agent_id=%s", addr, agentID)
 	conn, _, err := websocket.DefaultDialer.Dial(u, nil)
 	if err != nil {
@@ -159,6 +163,17 @@ func (h *Hub) SendTo(peerID string, msg []byte) error {
 		return fmt.Errorf("peer %s not connected", peerID)
 	}
 	return conn.WriteMessage(websocket.TextMessage, msg)
+}
+
+// UpdateConnID 更新连接的标识符（握手后从临时ID更新为真实agentID）
+func (h *Hub) UpdateConnID(oldID, newID string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if conn, ok := h.conns[oldID]; ok {
+		h.conns[newID] = conn
+		delete(h.conns, oldID)
+		log.Printf("[hub] conn %s -> %s", oldID, newID)
+	}
 }
 
 func (h *Hub) Stop() {

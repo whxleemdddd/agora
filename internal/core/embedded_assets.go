@@ -2,5 +2,5 @@ package core
 
 import "embed"
 
-//go:embed web/index.html
+//go:embed index.html
 var webFS embed.FS

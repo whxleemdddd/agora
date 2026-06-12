@@ -3,186 +3,423 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Agora Mesh</title>
+<title>Agora Mesh · 局域网 Agent 广场</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0d1117; color: #c9d1d9; min-height: 100vh; }
-  .container { max-width: 1000px; margin: 0 auto; padding: 24px; }
-  header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 32px; }
-  h1 { font-size: 24px; font-weight: 600; color: #58a6ff; }
-  .self-card { display: flex; gap: 24px; margin-bottom: 32px; }
-  .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 20px; flex: 1; }
-  .card h3 { font-size: 14px; color: #8b949e; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
-  .card .value { font-size: 18px; color: #c9d1d9; margin-bottom: 4px; }
-  .card .sub { font-size: 12px; color: #8b949e; }
-  .peers-section { margin-bottom: 32px; }
-  .peers-section h2 { font-size: 18px; margin-bottom: 16px; }
-  .peer-list { display: flex; flex-direction: column; gap: 12px; }
-  .peer-card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px; display: flex; justify-content: space-between; align-items: center; }
-  .peer-info .name { font-size: 16px; font-weight: 500; }
-  .peer-info .meta { font-size: 12px; color: #8b949e; margin-top: 4px; }
-  .peer-status { padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 500; }
-  .status-online { background: #1b3a2b; color: #3fb950; }
-  .status-busy { background: #3a2b1b; color: #d29922; }
-  .status-offline { background: #2d1b1b; color: #f85149; }
-  .empty-state { text-align: center; padding: 48px; color: #8b949e; }
-  .empty-state p { font-size: 14px; margin-top: 8px; }
-  .actions { display: flex; gap: 12px; margin-bottom: 24px; }
-  button { background: #238636; color: #fff; border: none; border-radius: 6px; padding: 10px 20px; font-size: 14px; cursor: pointer; }
-  button:hover { background: #2ea043; }
-  button.secondary { background: #21262d; border: 1px solid #30363d; }
-  button.secondary:hover { background: #30363d; }
-  input[type="text"], textarea { background: #0d1117; border: 1px solid #30363d; border-radius: 6px; color: #c9d1d9; padding: 10px 14px; font-size: 14px; width: 100%; }
-  input[type="text"]:focus, textarea:focus { outline: none; border-color: #58a6ff; }
-  .broadcast-box { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 20px; }
-  .broadcast-box h3 { margin-bottom: 12px; }
-  .broadcast-box .row { display: flex; gap: 12px; align-items: flex-start; }
-  .broadcast-box .row textarea { flex: 1; min-height: 60px; resize: vertical; }
-  .log { margin-top: 12px; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 12px; font-family: monospace; font-size: 12px; max-height: 120px; overflow-y: auto; color: #8b949e; }
-  .log .entry { margin-bottom: 4px; }
-  .log .entry time { color: #484f58; }
-  .peer-card:hover { border-color: #58a6ff; transition: border-color 0.2s; }
-  .skills-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-  .skill-tag { background: #1f3a5f; color: #79c0ff; padding: 2px 8px; border-radius: 4px; font-size: 11px; }
+  .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+
+  /* Header */
+  header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
+  h1 { font-size: 22px; font-weight: 600; color: #58a6ff; }
+  h1 small { font-size: 13px; color: #8b949e; font-weight: 400; margin-left: 8px; }
+  header .info { font-size: 12px; color: #8b949e; text-align: right; }
+
+  /* Layout: 两栏 */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+
+  /* Card 通用 */
+  .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; overflow: hidden; }
+  .card-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; background: #1c2333; border-bottom: 1px solid #30363d; }
+  .card-header h2 { font-size: 14px; font-weight: 500; color: #8b949e; letter-spacing: 0.5px; text-transform: uppercase; }
+  .card-header .count { font-size: 12px; color: #58a6ff; background: #0d1117; padding: 2px 8px; border-radius: 10px; }
+  .card-body { padding: 12px 16px; }
+
+  /* Agent 条目 */
+  .agent-item { display: flex; align-items: center; padding: 10px 0; border-bottom: 1px solid #21262d; cursor: pointer; transition: background 0.15s; }
+  .agent-item:last-child { border-bottom: none; }
+  .agent-item:hover { background: #1c2333; margin: 0 -16px; padding: 10px 16px; border-radius: 4px; }
+  .agent-dot { width: 10px; height: 10px; border-radius: 50%; margin-right: 12px; flex-shrink: 0; }
+  .dot-online { background: #3fb950; box-shadow: 0 0 6px #3fb95066; }
+  .dot-busy { background: #d29922; }
+  .dot-offline { background: #f85149; }
+  .agent-name { font-size: 14px; font-weight: 500; }
+  .agent-name small { font-size: 11px; color: #8b949e; font-weight: 400; margin-left: 6px; }
+  .agent-type { font-size: 11px; color: #8b949e; margin-left: auto; padding: 2px 8px; background: #0d1117; border-radius: 4px; border: 1px solid #30363d; }
+  .agent-skills { display: flex; gap: 4px; margin-top: 4px; flex-wrap: wrap; }
+  .skill-tag { background: #1f3a5f; color: #79c0ff; padding: 1px 6px; border-radius: 3px; font-size: 10px; }
+
+  /* 消息流 */
+  .msg-box { margin-bottom: 16px; }
+  .msg-box .card-body { padding: 8px 16px; max-height: 200px; overflow-y: auto; }
+  .msg-entry { font-size: 12px; padding: 3px 0; border-bottom: 1px solid #21262d; color: #8b949e; }
+  .msg-entry:last-child { border-bottom: none; }
+  .msg-entry .from { color: #58a6ff; }
+  .msg-entry .to { color: #d29922; }
+  .msg-entry .time { color: #484f58; margin-right: 6px; }
+  .msg-input-row { display: flex; gap: 8px; padding: 12px 16px; background: #1c2333; }
+
+  /*  输入框/按钮 */
+  input, textarea, select { background: #0d1117; border: 1px solid #30363d; border-radius: 6px; color: #c9d1d9; padding: 8px 12px; font-size: 13px; outline: none; width: 100%; }
+  input:focus, textarea:focus, select:focus { border-color: #58a6ff; }
+  textarea { resize: vertical; min-height: 40px; font-family: inherit; }
+  select { width: auto; min-width: 100px; cursor: pointer; }
+
+  .btn { background: #238636; color: #fff; border: none; border-radius: 6px; padding: 8px 16px; font-size: 13px; cursor: pointer; white-space: nowrap; }
+  .btn:hover { background: #2ea043; }
+  .btn-sm { background: #21262d; border: 1px solid #30363d; color: #c9d1d9; padding: 4px 12px; font-size: 12px; border-radius: 6px; cursor: pointer; }
+  .btn-sm:hover { background: #30363d; }
+  .btn-sm.primary { background: #238636; border-color: #238636; color: #fff; }
+  .btn-sm.primary:hover { background: #2ea043; }
+  .btn-sm.danger { color: #f85149; }
+  .btn-sm.danger:hover { background: #2d1b1b; }
+
+  /* Modal */
+  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 100; align-items: center; justify-content: center; }
+  .modal-overlay.active { display: flex; }
+  .modal { background: #161b22; border: 1px solid #30363d; border-radius: 12px; width: 480px; max-width: 90vw; max-height: 80vh; overflow-y: auto; }
+  .modal-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid #30363d; }
+  .modal-header h3 { font-size: 16px; }
+  .modal-close { background: none; border: none; color: #8b949e; font-size: 20px; cursor: pointer; padding: 0; line-height: 1; }
+  .modal-close:hover { color: #c9d1d9; }
+  .modal-body { padding: 20px; }
+  .modal-body .field { margin-bottom: 14px; }
+  .modal-body .field label { display: block; font-size: 12px; color: #8b949e; margin-bottom: 4px; }
+  .modal-body .field .val { font-size: 14px; }
+
+  /* Toast */
+  .toast { position: fixed; bottom: 24px; right: 24px; background: #238636; color: #fff; padding: 10px 18px; border-radius: 8px; font-size: 13px; z-index: 200; opacity: 0; transition: opacity 0.3s; }
+  .toast.error { background: #f85149; }
+  .toast.show { opacity: 1; }
+
+  .empty-state { text-align: center; padding: 32px; color: #8b949e; font-size: 13px; }
+  .empty-state .big { font-size: 28px; margin-bottom: 8px; }
+
+  .tab-bar { display: flex; gap: 0; margin-bottom: 0; border-bottom: 1px solid #30363d; }
+  .tab-bar .tab { padding: 8px 16px; font-size: 12px; color: #8b949e; cursor: pointer; border-bottom: 2px solid transparent; }
+  .tab-bar .tab.active { color: #58a6ff; border-bottom-color: #58a6ff; }
 </style>
 </head>
 <body>
 <div class="container">
   <header>
-    <h1>⬡ Agora Mesh</h1>
-    <span id="last-update" style="font-size: 12px; color: #8b949e;"></span>
+    <div>
+      <h1>⬡ Agora Mesh <small>局域网 Agent 广场</small></h1>
+    </div>
+    <div class="info">
+      <div>ID: <span id="self-id">—</span></div>
+      <div>名称: <span id="self-name">—</span></div>
+      <div>更新: <span id="last-update">—</span></div>
+    </div>
   </header>
 
-  <!-- 本机信息 -->
-  <div class="self-card" id="self-card">
+  <!-- 两栏：本机Agent + 好友 -->
+  <div class="grid-2">
+    <!-- 本机Agent -->
     <div class="card">
-      <h3>Agent ID</h3>
-      <div class="value" id="self-id">—</div>
+      <div class="card-header">
+        <h2>🤖 本机 Agent</h2>
+        <span class="count" id="local-count">0</span>
+      </div>
+      <div class="card-body" id="local-agent-list">
+        <div class="empty-state"><div class="big">⬡</div><p>正在加载...</p></div>
+      </div>
     </div>
+
+    <!-- 局域网好友 -->
     <div class="card">
-      <h3>名称</h3>
-      <div class="value" id="self-name">—</div>
+      <div class="card-header">
+        <h2>🌐 局域网好友</h2>
+        <span class="count" id="peer-count">0</span>
+      </div>
+      <div class="card-body" id="peer-list">
+        <div class="empty-state"><div class="big">🌐</div><p>等待发现...</p></div>
+      </div>
     </div>
-    <div class="card">
-      <h3>在线对端</h3>
-      <div class="value" id="peer-count">0</div>
+  </div>
+
+  <!-- Tab: 对话 / 任务 -->
+  <div class="card msg-box">
+    <div class="tab-bar">
+      <div class="tab active" onclick="switchTab('chat')" id="tab-chat">💬 对话</div>
+      <div class="tab" onclick="switchTab('task')" id="tab-task">📋 带任务交流</div>
     </div>
-  </div>
-
-  <!-- 操作区 -->
-  <div class="actions">
-    <button onclick="refresh()">🔄 刷新</button>
-  </div>
-
-  <!-- 广播 -->
-  <div class="broadcast-box" style="margin-bottom: 24px;">
-    <h3>📢 广播消息</h3>
-    <div class="row">
-      <textarea id="broadcast-msg" placeholder="输入消息内容..." rows="2"></textarea>
-      <button onclick="broadcast()">发送</button>
+    <div id="chat-panel">
+      <div class="card-body" id="message-log">
+        <div class="empty-state">暂无消息</div>
+      </div>
+      <div class="msg-input-row">
+        <select id="chat-target">
+          <option value="">📢 广播</option>
+        </select>
+        <input type="text" id="chat-input" placeholder="输入消息..." onkeydown="if(event.key==='Enter')sendChat()">
+        <button class="btn" onclick="sendChat()">发送</button>
+      </div>
     </div>
-    <div class="log" id="broadcast-log"></div>
-  </div>
-
-  <!-- 消息流 -->
-  <div class="broadcast-box" style="margin-bottom: 24px;">
-    <h3>💬 消息流</h3>
-    <div class="log" id="message-log" style="max-height: 300px;"></div>
-  </div>
-
-  <!-- 在线对端 -->
-  <div class="peers-section">
-    <h2>在线 Agent</h2>
-    <div class="peer-list" id="peer-list">
-      <div class="empty-state">
-        <div style="font-size: 24px;">⬡</div>
-        <p>正在连接 Agora 守护进程...</p>
+    <div id="task-panel" style="display:none">
+      <div class="card-body" id="task-log">
+        <div class="empty-state">选择目标 Agent 和技能，发送任务</div>
+      </div>
+      <div class="msg-input-row" style="flex-wrap:wrap">
+        <select id="task-target">
+          <option value="">选择目标 Agent</option>
+        </select>
+        <input type="text" id="task-skill" placeholder="技能名称（如 chat）" style="width:120px">
+        <input type="text" id="task-payload" placeholder="任务内容..." style="flex:2">
+        <button class="btn" onclick="sendTask()">📤 发送任务</button>
       </div>
     </div>
   </div>
 </div>
 
-<script>
-const API_BASE = window.location.origin;
-const WS_PORT = API_BASE.includes('7991') ? 7990 : 7980;
+<!-- Agent 详情弹窗 -->
+<div class="modal-overlay" id="detail-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="detail-name">Agent 详情</h3>
+      <button class="modal-close" onclick="closeDetail()">✕</button>
+    </div>
+    <div class="modal-body" id="detail-body">
+      <div class="field"><label>Agent ID</label><div class="val" id="detail-id">—</div></div>
+      <div class="field"><label>名称</label><div class="val" id="detail-name2">—</div></div>
+      <div class="field"><label>框架</label><div class="val" id="detail-type">—</div></div>
+      <div class="field"><label>状态</label><div class="val" id="detail-status">—</div></div>
+      <div class="field"><label>能力清单</label><div id="detail-skills" class="val"></div></div>
+      <div style="display:flex;gap:8px;margin-top:16px">
+        <button class="btn-sm primary" onclick="quickChat()">💬 发消息</button>
+        <button class="btn-sm" onclick="quickTask()">📋 派任务</button>
+      </div>
+    </div>
+  </div>
+</div>
 
-function log(msg) {
-  const el = document.getElementById('broadcast-log');
-  const entry = document.createElement('div');
-  entry.className = 'entry';
-  entry.innerHTML = `<time>${new Date().toLocaleTimeString()}</time> ${msg}`;
-  el.appendChild(entry);
-  el.scrollTop = el.scrollHeight;
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+const API = window.location.origin;
+
+// ── 状态 ──
+let localAgents = [];
+let peers = [];
+let selectedAgentId = null;
+let isDetailLocal = false;
+
+// ── 路由 ──
+function showToast(msg, isError) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast ' + (isError ? 'error show' : 'show');
+  setTimeout(() => t.classList.remove('show'), 3000);
 }
 
+function switchTab(name) {
+  document.getElementById('tab-chat').classList.toggle('active', name === 'chat');
+  document.getElementById('tab-task').classList.toggle('active', name === 'task');
+  document.getElementById('chat-panel').style.display = name === 'chat' ? '' : 'none';
+  document.getElementById('task-panel').style.display = name === 'task' ? '' : 'none';
+}
+
+// ── 获取数据 ──
 async function refresh() {
-  document.getElementById('last-update').textContent = '刷新中...';
   try {
-    const [statusRes, peersRes] = await Promise.all([
-      fetch(`${API_BASE}/api/status`),
-      fetch(`${API_BASE}/api/peers`)
+    const [statusRes, peersRes, localRes] = await Promise.all([
+      fetch(API + '/api/status'),
+      fetch(API + '/api/peers'),
+      fetch(API + '/api/localAgents')
     ]);
     const status = await statusRes.json();
-    const peers = await peersRes.json();
-    const mcpPort = status.mcp_port || 7982;
-    window.__mcpPort = mcpPort;
+    peers = await peersRes.json();
+    localAgents = await localRes.json();
 
-    // 获取消息
-    const msgsRes = await fetch(`${API_BASE}/api/messages`);
-    const msgs = await msgsRes.json();
-    const msgLog = document.getElementById('message-log');
-    msgLog.innerHTML = msgs.map(m => `<div class="entry">${m}</div>`).join('');
-    msgLog.scrollTop = msgLog.scrollHeight;
-
+    // header
     document.getElementById('self-id').textContent = status.agent_id || '—';
     document.getElementById('self-name').textContent = status.name || '—';
-    document.getElementById('peer-count').textContent = peers.length || 0;
-    document.getElementById('last-update').textContent = `更新于 ${new Date().toLocaleTimeString()}`;
+    document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
 
-    const list = document.getElementById('peer-list');
-    if (!peers || peers.length === 0) {
-      list.innerHTML = `<div class="empty-state"><div style="font-size: 24px;">⬡</div><p>Mesh 中暂无其他 Agent</p></div>`;
-      return;
-    }
-
-    list.innerHTML = peers.map(p => {
-      const card = p.card || {};
-      const lastSeen = p.last_seen ? new Date(p.last_seen).toLocaleTimeString() : '—';
-      const statusClass = card.status === 'online' ? 'status-online' : card.status === 'busy' ? 'status-busy' : 'status-offline';
-      return `<div class="peer-card">
-        <div class="peer-info">
-          <div class="name">${card.name || card.agent_id || 'Unknown'}</div>
-          <div class="meta">${card.agent_id || ''} · ${card.framework || '?'} · 最后在线 ${lastSeen}</div>
-        </div>
-        <span class="peer-status ${statusClass}">${card.status || 'unknown'}</span>
-      </div>`;
-    }).join('');
+    // 本机Agent
+    renderLocalAgents();
+    // 好友
+    renderPeers();
+    // 选择器更新
+    updateSelectors();
   } catch (e) {
     document.getElementById('self-id').textContent = '⚠ 连接失败';
-    document.getElementById('peer-list').innerHTML =
-      `<div class="empty-state"><div style="font-size: 24px;">⚠</div><p>Agora 守护进程未运行。请先执行: agora</p></div>`;
+    document.getElementById('local-agent-list').innerHTML = `<div class="empty-state"><div class="big">⚠</div><p>Agora 守护进程未运行</p></div>`;
   }
 }
 
-async function broadcast() {
-  const msg = document.getElementById('broadcast-msg').value.trim();
-  if (!msg) return;
-  try {
-    await fetch(`${API_BASE}/api/broadcast`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: msg })
+function renderLocalAgents() {
+  const list = document.getElementById('local-agent-list');
+  document.getElementById('local-count').textContent = localAgents.length;
+  if (!localAgents || localAgents.length === 0) {
+    list.innerHTML = `<div class="empty-state"><div class="big">⬡</div><p>暂无本机 Agent，在配置文件中声明 agents</p></div>`;
+    return;
+  }
+  list.innerHTML = localAgents.map(a => renderAgentItem(a, true)).join('');
+}
+
+function renderPeers() {
+  const list = document.getElementById('peer-list');
+  document.getElementById('peer-count').textContent = peers.length;
+  if (!peers || peers.length === 0) {
+    list.innerHTML = `<div class="empty-state"><div class="big">🌐</div><p>Mesh 中暂无好友</p></div>`;
+    return;
+  }
+  list.innerHTML = peers.map(p => {
+    const card = p.card || {};
+    const subs = p.sub_agents || [];
+    let items = '';
+    // 对端本体
+    items += renderAgentItem({
+      id: card.agent_id || p.conn_id,
+      name: card.name || 'Unknown',
+      type: card.framework || 'agora',
+      status: card.status || 'online',
+      skills: card.skills || []
+    }, false, p.conn_id);
+    // 对端的子Agent
+    subs.forEach(s => {
+      items += renderAgentItem(s, false, p.conn_id);
     });
-    log(`📤 已广播: "${msg}"`);
-    document.getElementById('broadcast-msg').value = '';
-  } catch (e) {
-    log(`❌ 广播失败: ${e.message}`);
-  }
+    return items;
+  }).join('');
 }
 
-// 自动刷新
+function renderAgentItem(a, isLocal, peerConnId) {
+  const dotClass = a.status === 'online' || !a.status ? 'dot-online' : a.status === 'busy' ? 'dot-busy' : 'dot-offline';
+  const skills = (a.skills || []).map(s => `<span class="skill-tag">${s.name || s}</span>`).join('');
+  const connector = isLocal ? '' : (peerConnId || '');
+  const onclick = `showDetail('${a.id || a.ID || a.name}', ${isLocal}, '${connector}')`;
+  const typeLabel = a.type || a.framework || '—';
+  return `<div class="agent-item" onclick="${onclick}">
+    <span class="agent-dot ${dotClass}"></span>
+    <div>
+      <div class="agent-name">${a.name || a.id} <small>${a.id || a.ID || ''}</small></div>
+      <div class="agent-skills">${skills}</div>
+    </div>
+    <span class="agent-type">${typeLabel}</span>
+  </div>`;
+}
+
+function updateSelectors() {
+  // 聊天目标选择器
+  const chatSel = document.getElementById('chat-target');
+  const taskSel = document.getElementById('task-target');
+  // 保留广播选项
+  while (chatSel.options.length > 1) chatSel.remove(1);
+  while (taskSel.options.length > 1) taskSel.remove(1);
+  // 好友
+  peers.forEach(p => {
+    const card = p.card || {};
+    const opt = new Option('📡 ' + (card.name || card.agent_id), p.conn_id || card.agent_id);
+    chatSel.add(opt.cloneNode(true));
+    taskSel.add(opt.cloneNode(true));
+  });
+}
+
+// ── 消息 ──
+async function fetchMessages() {
+  try {
+    const res = await fetch(API + '/api/messages');
+    const msgs = await res.json();
+    const log = document.getElementById('message-log');
+    if (!msgs || msgs.length === 0) {
+      log.innerHTML = '<div class="empty-state">暂无消息</div>';
+      return;
+    }
+    log.innerHTML = msgs.slice(-50).map(m => `<div class="msg-entry"><span class="time">${m.split(']')[0]}]</span>${escapeHtml(m)}</div>`).join('');
+    log.scrollTop = log.scrollHeight;
+  } catch(e) {}
+}
+
+async function sendChat() {
+  const target = document.getElementById('chat-target').value;
+  const text = document.getElementById('chat-input').value.trim();
+  if (!text) return;
+  try {
+    await fetch(API + '/api/broadcast', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({message: text, to: target})
+    });
+    document.getElementById('chat-input').value = '';
+    showToast(target ? '📤 已私聊' : '📢 已广播');
+    fetchMessages();
+  } catch(e) { showToast('发送失败', true); }
+}
+
+async function sendTask() {
+  const to = document.getElementById('task-target').value;
+  const skill = document.getElementById('task-skill').value.trim();
+  const payload = document.getElementById('task-payload').value.trim();
+  if (!to || !skill) { showToast('请选择目标并输入技能', true); return; }
+  try {
+    await fetch(API + '/api/sendTask', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({to, skill, payload})
+    });
+    showToast('📋 任务已发送');
+    document.getElementById('task-payload').value = '';
+  } catch(e) { showToast('发送失败', true); }
+}
+
+// ── 详情弹窗 ──
+function showDetail(agentId, isLocal, peerConnId) {
+  selectedAgentId = agentId;
+  isDetailLocal = isLocal;
+  // 查找agent信息
+  let a = null;
+  if (isLocal) {
+    a = localAgents.find(x => x.name === agentId || x.id === agentId);
+  } else {
+    for (const p of peers) {
+      const card = p.card || {};
+      if (card.agent_id === agentId || p.conn_id === agentId) { a = { ...card, id: p.conn_id }; break; }
+      const subs = p.sub_agents || [];
+      a = subs.find(s => s.name === agentId || s.id === agentId);
+      if (a) { a.id = a.id || a.name; break; }
+    }
+  }
+  if (!a) { showToast('未找到 Agent 信息', true); return; }
+  document.getElementById('detail-name').textContent = a.name || a.id || 'Agent';
+  document.getElementById('detail-id').textContent = a.id || a.agent_id || '—';
+  document.getElementById('detail-name2').textContent = a.name || '—';
+  document.getElementById('detail-type').textContent = a.type || a.framework || '—';
+  document.getElementById('detail-status').textContent = a.status || 'online';
+  const skills = (a.skills || []).map(s => `<span class="skill-tag">${s.name || s}</span>`).join('');
+  document.getElementById('detail-skills').innerHTML = skills || '<span style="color:#8b949e">未声明</span>';
+  document.getElementById('detail-modal').classList.add('active');
+}
+
+function closeDetail() {
+  document.getElementById('detail-modal').classList.remove('active');
+}
+
+function quickChat() {
+  closeDetail();
+  const sel = document.getElementById('chat-target');
+  if (selectedAgentId) {
+    for (let i = 0; i < sel.options.length; i++) {
+      if (sel.options[i].value === selectedAgentId) { sel.selectedIndex = i; break; }
+    }
+  }
+  switchTab('chat');
+}
+function quickTask() {
+  closeDetail();
+  const sel = document.getElementById('task-target');
+  if (selectedAgentId) {
+    for (let i = 0; i < sel.options.length; i++) {
+      if (sel.options[i].value === selectedAgentId) { sel.selectedIndex = i; break; }
+    }
+  }
+  switchTab('task');
+}
+
+function escapeHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// ── 自动刷新 ──
 refresh();
+fetchMessages();
 setInterval(refresh, 10000);
+setInterval(fetchMessages, 3000);
+
+// 点击modal外部关闭
+document.getElementById('detail-modal').addEventListener('click', e => {
+  if (e.target === e.currentTarget) closeDetail();
+});
 </script>
 </body>
 </html>

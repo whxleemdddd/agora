@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/whxleem/agora/pkg/types"
 	"gopkg.in/yaml.v3"
 )
 
@@ -13,10 +14,18 @@ const DefaultConfigPath = "~/.agora/config.yaml"
 
 // AppConfig 完整应用配置
 type AppConfig struct {
-	Agent AgentConfig   `yaml:"agent"`
-	Mesh  MeshConfig    `yaml:"mesh"`
-	Peers []PeerConfig  `yaml:"peers,omitempty"`
-	API   APIConfig     `yaml:"api"`
+	Agent  AgentConfig   `yaml:"agent"`
+	Agents []AgentEntry  `yaml:"agents,omitempty"` // 本机挂载的多个子Agent
+	Mesh   MeshConfig    `yaml:"mesh"`
+	Peers  []PeerConfig  `yaml:"peers,omitempty"`
+	API    APIConfig     `yaml:"api"`
+}
+
+// AgentEntry 本机一个子Agent的声明
+type AgentEntry struct {
+	Name   string            `yaml:"name"`
+	Type   string            `yaml:"type"`           // hermes, claude-code, custom
+	Skills []types.SkillDesc `yaml:"skills,omitempty"`
 }
 
 // AgentConfig Agent 自身配置

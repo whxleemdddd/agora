@@ -8,6 +8,23 @@ agent:
   id: ""                # Agent ID（首次运行自动生成）
   name: ""              # 显示名称（默认 agora-<hostname>）
 
+# 本机挂载的多个子Agent（一个Agora实例管理多个智能体）
+# 每种 Agent 在界面上独立显示，拥有独立的能力清单
+agents:
+  - name: 小H              # 子Agent显示名称
+    type: hermes            # 框架类型：hermes, claude-code, custom
+    skills:                 # 能力清单（可选，不配则只有默认能力）
+      - name: chat
+        description: 通用对话能力
+
+  - name: 审计助手
+    type: custom
+    skills:
+      - name: 底稿审核
+        description: 审计工作底稿规则校验与复核
+      - name: 数据分析
+        description: 财务数据趋势分析与异常检测
+
 mesh:
   port: 7980            # WebSocket 端口
   heartbeat_sec: 30     # 心跳间隔（秒）
